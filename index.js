@@ -16,18 +16,7 @@ let isReady = false;
 // USER
 // =======================
 const USERS = [
-  {
-    name: "Bapakku",
-    numbers: ["17867468840", "112786294226994", "112786294226994@lid"],
-  },
-  {
-    name: "Ibu Sari",
-    numbers: ["6282142570378", "205419830055064@lid", "205419830055064"],
-  },
-  {
-    name: "Bapak Adi",
-    numbers: ["10600096755791", "10600096755791@lid", "10600096755791"],
-  },
+  { name: "Owner", numbers: ["17867468840", "6282142570378"] },
 ];
 
 // =======================
@@ -37,11 +26,12 @@ const formatRupiah = (v) =>
   Number(v || 0).toLocaleString("id-ID");
 
 const getDate = (d) =>
-  d.toISOString().split("T")[0];
+  new Date(d).toISOString().split("T")[0];
 
 const getStatus = (stock) => {
   if (stock <= 10) return "❌ Kritis";
   if (stock <= 50) return "⚠️ Menipis";
+  if (stock <= 100) return "🟡 Perlu perhatian";
   return "✅ Aman";
 };
 
@@ -65,6 +55,9 @@ const client = new Client({
   },
 });
 
+// =======================
+// QR
+// =======================
 client.on("qr", async (qr) => {
   qrImage = await QRCode.toDataURL(qr);
 });
@@ -75,7 +68,7 @@ client.on("ready", () => {
 });
 
 // =======================
-// WEB (QR + DASHBOARD)
+// WEB
 // =======================
 app.get("/", (req, res) => {
   if (isReady) return res.send("✅ Connected");
@@ -83,16 +76,16 @@ app.get("/", (req, res) => {
   res.send(`<img src="${qrImage}" />`);
 });
 
-// API data
+// API dashboard
 app.get("/api/data", async (req, res) => {
   const today = getDate(new Date());
   const { data } = await axios.get(
     `${API_URL}/variant_sales.php?start=${today}&end=${today}`
   );
-  res.json(data.slice(0, 10));
+  res.json(data);
 });
 
-// DASHBOARD WEB
+// dashboard web
 app.get("/dashboard", (req, res) => {
   res.send(`
   <html>
@@ -108,14 +101,14 @@ app.get("/dashboard", (req, res) => {
         const res = await fetch('/api/data');
         const data = await res.json();
 
-        const labels = data.map(d=>d.product);
-        const values = data.map(d=>Number(d.total_terjual));
-
         new Chart(document.getElementById('chart'), {
           type:'bar',
           data:{
-            labels,
-            datasets:[{label:'Penjualan', data:values}]
+            labels: data.map(d=>d.product),
+            datasets:[{
+              label:'Qty Terjual',
+              data: data.map(d=>Number(d.total_terjual))
+            }]
           }
         });
       }
@@ -132,78 +125,117 @@ app.listen(process.env.PORT || 3000);
 // BOT
 // =======================
 client.on("message", async (msg) => {
-  const sender = (await msg.getContact()).number;
-  if (!USERS.some(u => u.numbers.includes(sender))) return;
+  try {
+    let sender = msg.from;
+    if (msg.from.includes("@g.us")) sender = msg.author;
 
-  const text = msg.body.toLowerCase();
-  const now = new Date();
-  const today = getDate(now);
+    sender = sender.replace("@c.us", "").replace("@lid", "");
 
-  const startWeek = getDate(new Date(now.setDate(now.getDate()-7)));
-  const monthStart = getDate(new Date(now.getFullYear(), now.getMonth(),1));
+    if (!USERS.some(u => u.numbers.includes(sender))) return;
 
-  // =======================
-  // LAPORAN HARIAN
-  // =======================
-  if (text === "laporan harian") {
-    const [sales, pcs] = await Promise.all([
-      axios.get(`${API_URL}/sales_range.php?start=${today}&end=${today}`),
-      axios.get(`${API_URL}/total_items_month.php?start=${today}&end=${today}`)
-    ]);
+    const text = msg.body.toLowerCase();
 
-    return msg.reply(
-      `📅 HARIAN\n💰 Rp${formatRupiah(sales.data.total)}\n📦 ${pcs.data.total_pcs}`
-    );
-  }
+    const now = new Date();
+    const today = getDate(now);
 
-  // =======================
-  // MINGGUAN
-  // =======================
-  if (text === "laporan mingguan") {
-    const [sales, pcs] = await Promise.all([
-      axios.get(`${API_URL}/sales_range.php?start=${startWeek}&end=${today}`),
-      axios.get(`${API_URL}/total_items_month.php?start=${startWeek}&end=${today}`)
-    ]);
+    const weekStart = getDate(new Date(Date.now() - 7 * 86400000));
+    const monthStart = getDate(new Date(now.getFullYear(), now.getMonth(), 1));
 
-    return msg.reply(
-      `📊 MINGGUAN\n💰 Rp${formatRupiah(sales.data.total)}\n📦 ${pcs.data.total_pcs}`
-    );
-  }
+    // =======================
+    // CEK STOK
+    // =======================
+    if (text === "stok") {
+      const { data } = await axios.get(
+        `${API_URL}/variant_sales.php?start=${today}&end=${today}`
+      );
 
-  // =======================
-  // BULANAN
-  // =======================
-  if (text === "laporan bulanan") {
-    const [sales, pcs] = await Promise.all([
-      axios.get(`${API_URL}/sales_range.php?start=${monthStart}&end=${today}`),
-      axios.get(`${API_URL}/total_items_month.php?start=${monthStart}&end=${today}`)
-    ]);
+      const result = data.map(v =>
+        `${v.product} → ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
+      ).join("\n");
 
-    return msg.reply(
-      `📆 BULANAN\n💰 Rp${formatRupiah(sales.data.total)}\n📦 ${pcs.data.total_pcs}`
-    );
-  }
+      return msg.reply("📦 STOK\n\n" + result);
+    }
 
-  // =======================
-  // PREDIKSI RESTOCK
-  // =======================
-  if (text === "prediksi stok") {
-    const start = getDate(new Date(Date.now()-7*86400000));
-    const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${start}&end=${today}`);
+    // =======================
+    // HARIAN (DETAIL)
+    // =======================
+    if (text === "laporan harian") {
+      const { data } = await axios.get(
+        `${API_URL}/variant_sales.php?start=${today}&end=${today}`
+      );
 
-    const result = data.slice(0,5).map(v=>{
-      const avg = v.total_terjual/7;
-      const days = Math.floor(v.stok_sekarang/avg);
+      const result = data.map(v =>
+        `${v.product}
+Qty: ${v.total_terjual}
+Rp: ${formatRupiah(v.total_omzet)}`
+      ).join("\n\n");
 
-      return `${v.product}
+      return msg.reply("📅 HARIAN\n\n" + result);
+    }
+
+    // =======================
+    // MINGGUAN
+    // =======================
+    if (text === "laporan mingguan") {
+      const { data } = await axios.get(
+        `${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`
+      );
+
+      const result = data.map(v =>
+        `${v.product}
+Qty: ${v.total_terjual}
+Rp: ${formatRupiah(v.total_omzet)}`
+      ).join("\n\n");
+
+      return msg.reply("📊 MINGGUAN\n\n" + result);
+    }
+
+    // =======================
+    // BULANAN + STOK
+    // =======================
+    if (text === "laporan bulanan") {
+      const { data } = await axios.get(
+        `${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`
+      );
+
+      const result = data.map(v =>
+        `${v.product}
+Qty: ${v.total_terjual}
+Rp: ${formatRupiah(v.total_omzet)}
+Stok: ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
+      ).join("\n\n");
+
+      return msg.reply("📆 BULANAN\n\n" + result);
+    }
+
+    // =======================
+    // PREDIKSI RESTOCK
+    // =======================
+    if (text === "prediksi stok") {
+      const start = getDate(new Date(Date.now() - 7 * 86400000));
+
+      const { data } = await axios.get(
+        `${API_URL}/variant_sales.php?start=${start}&end=${today}`
+      );
+
+      const result = data.map(v => {
+        const avg = v.total_terjual / 7 || 1;
+        const days = Math.floor(v.stok_sekarang / avg);
+
+        return `${v.product}
 Stok: ${v.stok_sekarang}
 ⚠️ Pesan dalam: ${days} hari`;
-    }).join("\n\n");
+      }).join("\n\n");
 
-    return msg.reply("📉 PREDIKSI\n\n"+result);
+      return msg.reply("📉 PREDIKSI\n\n" + result);
+    }
+
+    msg.reply("Perintah: laporan harian | mingguan | bulanan | stok | prediksi stok");
+
+  } catch (err) {
+    console.error(err);
+    msg.reply("Error 🙏");
   }
-
-  msg.reply("Perintah: laporan harian | mingguan | bulanan | prediksi stok");
 });
 
 // =======================
@@ -212,14 +244,15 @@ Stok: ${v.stok_sekarang}
 cron.schedule("0 9 * * *", async () => {
   const today = getDate(new Date());
 
-  const [sales, pcs] = await Promise.all([
-    axios.get(`${API_URL}/sales_range.php?start=${today}&end=${today}`),
-    axios.get(`${API_URL}/total_items_month.php?start=${today}&end=${today}`)
-  ]);
-
-  await sendToAll(
-    `📅 AUTO REPORT 09:00\n💰 Rp${formatRupiah(sales.data.total)}\n📦 ${pcs.data.total_pcs}`
+  const { data } = await axios.get(
+    `${API_URL}/variant_sales.php?start=${today}&end=${today}`
   );
+
+  const result = data.slice(0,5).map(v =>
+    `${v.product} → ${v.total_terjual}`
+  ).join("\n");
+
+  await sendToAll("📅 AUTO REPORT 09:00\n\n" + result);
 });
 
 // =======================
@@ -227,14 +260,18 @@ cron.schedule("0 9 * * *", async () => {
 // =======================
 cron.schedule("*/30 * * * *", async () => {
   const today = getDate(new Date());
-  const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
 
-  const kritis = data.filter(v=>Number(v.stok_sekarang)<=50);
+  const { data } = await axios.get(
+    `${API_URL}/variant_sales.php?start=${today}&end=${today}`
+  );
+
+  const kritis = data.filter(v => v.stok_sekarang <= 50);
+
   if (!kritis.length) return;
 
   await sendToAll(
-    "🚨 STOK < 50\n" +
-    kritis.map(v=>`${v.product} (${v.stok_sekarang})`).join("\n")
+    "🚨 STOK MENIPIS\n\n" +
+    kritis.map(v => `${v.product} (${v.stok_sekarang})`).join("\n")
   );
 });
 
