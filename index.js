@@ -9,24 +9,23 @@ require("dotenv").config();
 // =======================
 const API_URL = "https://jamuanggerwaras.com/lord/api";
 const app = express();
-
 let latestQR = "";
 
 // =======================
 // USER MANAGEMENT
 // =======================
 const USERS = [
-   {
+  {
     name: "Bapak Hasan",
-    numbers: ["17867468840", "112786294226994"]
+    numbers: ["17867468840", "112786294226994"],
   },
   {
     name: "Ibu Sari",
-    numbers: ["6282142570378"]
+    numbers: ["6282142570378"],
   },
   {
     name: "Bapak Adi",
-    numbers: ["10600096755791"]
+    numbers: ["10600096755791"],
   },
 ];
 
@@ -35,15 +34,13 @@ const greetedUsers = {};
 // =======================
 // HELPER
 // =======================
-const formatRupiah = (value) => {
-  return Number(value || 0).toLocaleString("id-ID");
-};
+const formatRupiah = (value) =>
+  Number(value || 0).toLocaleString("id-ID");
 
 const getDate = (d) => d.toISOString().split("T")[0];
 
-const getUser = (sender) => {
-  return USERS.find((u) => u.numbers.includes(sender));
-};
+const getUser = (sender) =>
+  USERS.find((u) => u.numbers.includes(sender));
 
 // =======================
 // INIT WHATSAPP
@@ -64,7 +61,7 @@ const client = new Client({
 });
 
 // =======================
-// QR HANDLER (WEB + LOG)
+// QR HANDLER
 // =======================
 client.on("qr", (qr) => {
   latestQR = qr;
@@ -73,23 +70,20 @@ client.on("qr", (qr) => {
 });
 
 // =======================
-// READY
-// =======================
 client.on("ready", () => {
   console.log("WhatsApp siap!");
 });
 
 // =======================
-// WEB SERVER (UNTUK QR)
+// WEB SERVER (QR VIEW)
 // =======================
 app.get("/", (req, res) => {
   if (!latestQR) {
-    return res.send("QR belum tersedia atau sudah login ✅");
+    return res.send("QR belum tersedia / sudah login ✅");
   }
 
   res.send(`
     <h2>Scan QR WhatsApp</h2>
-    <p>Scan sekali saja</p>
     <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${latestQR}" />
   `);
 });
@@ -169,68 +163,124 @@ client.on("message", async (msg) => {
     }
 
     // =======================
-    // LAPORAN
+    // LAPORAN HARIAN
     // =======================
     if (textMsg.includes("harian") || textMsg.includes("hari ini")) {
-      const res = await axios.get(
-        `${API_URL}/sales_range.php?start=${today}&end=${today}`
-      );
-
-      return msg.reply(
-        greeting +
-          `📅 *LAPORAN HARI INI*\n\n💰 Omzet: Rp${formatRupiah(
-            res.data.total
-          )}`
-      );
-    }
-
-    if (textMsg.includes("mingguan")) {
-      const res = await axios.get(
-        `${API_URL}/sales_range.php?start=${weekStart}&end=${today}`
-      );
-
-      return msg.reply(
-        greeting +
-          `📊 *LAPORAN MINGGU INI*\n\n💰 Omzet: Rp${formatRupiah(
-            res.data.total
-          )}`
-      );
-    }
-
-    if (textMsg.includes("bulanan") || textMsg.includes("bulan ini")) {
-      const res = await axios.get(
-        `${API_URL}/sales_range.php?start=${monthStart}&end=${today}`
-      );
-
-      return msg.reply(
-        greeting +
-          `📆 *LAPORAN BULAN INI*\n\n💰 Omzet: Rp${formatRupiah(
-            res.data.total
-          )}`
-      );
-    }
-
-    if (textMsg.includes("laporan lengkap")) {
-      const [sales, pcs] = await Promise.all([
-        axios.get(
-          `${API_URL}/sales_range.php?start=${monthStart}&end=${today}`
-        ),
-        axios.get(
-          `${API_URL}/total_items_month.php?start=${monthStart}&end=${today}`
-        ),
+      const [sales, pcs, products, variants] = await Promise.all([
+        axios.get(`${API_URL}/sales_range.php?start=${today}&end=${today}`),
+        axios.get(`${API_URL}/total_items_month.php?start=${today}&end=${today}`),
+        axios.get(`${API_URL}/top_products.php`),
+        axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`),
       ]);
 
+      const omzet = Number(sales.data.total || 0);
+      const totalPcs = Number(pcs.data.total_pcs || 0);
+
+      const produkText = (products.data || [])
+        .slice(0, 3)
+        .map(
+          (p, i) =>
+            `${i + 1}. ${p.product} (${p.total_terjual} pcs)`
+        )
+        .join("\n");
+
+      const varianText = (variants.data || [])
+        .slice(0, 5)
+        .map(
+          (v, i) =>
+            `${i + 1}. ${v.product} (${v.product_des})
+→ ${v.total_qty} pcs
+→ Rp${formatRupiah(v.total_omzet)}`
+        )
+        .join("\n\n");
+
       return msg.reply(
         greeting +
-          `📊 *LAPORAN LENGKAP*\n\n💰 Omzet: Rp${formatRupiah(
-            sales.data.total
-          )}\n📦 Total: ${pcs.data.total_pcs} pcs`
+          `📅 *LAPORAN HARI INI*\n\n` +
+          `💰 Omzet: Rp${formatRupiah(omzet)}\n` +
+          `📦 Total: ${totalPcs} pcs\n\n` +
+          `🔥 Produk Terlaris:\n${produkText || "-"}\n\n` +
+          `📦 Varian Terlaris:\n${varianText || "-"}`
       );
     }
 
+    // =======================
+    // LAPORAN MINGGUAN
+    // =======================
+    if (textMsg.includes("mingguan")) {
+      const [sales, pcs, variants] = await Promise.all([
+        axios.get(`${API_URL}/sales_range.php?start=${weekStart}&end=${today}`),
+        axios.get(`${API_URL}/total_items_month.php?start=${weekStart}&end=${today}`),
+        axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`),
+      ]);
+
+      const omzet = Number(sales.data.total || 0);
+      const totalPcs = Number(pcs.data.total_pcs || 0);
+
+      const varianText = (variants.data || [])
+        .slice(0, 5)
+        .map(
+          (v, i) =>
+            `${i + 1}. ${v.product} (${v.product_des})
+→ ${v.total_qty} pcs
+→ Rp${formatRupiah(v.total_omzet)}`
+        )
+        .join("\n\n");
+
+      return msg.reply(
+        greeting +
+          `📊 *LAPORAN MINGGU INI*\n\n` +
+          `💰 Omzet: Rp${formatRupiah(omzet)}\n` +
+          `📦 Total: ${totalPcs} pcs\n\n` +
+          `🔥 Varian Terlaris:\n${varianText || "-"}`
+      );
+    }
+
+    // =======================
+    // LAPORAN BULANAN
+    // =======================
+    if (textMsg.includes("bulanan") || textMsg.includes("bulan ini")) {
+      const [sales, pcs, variants] = await Promise.all([
+        axios.get(`${API_URL}/sales_range.php?start=${monthStart}&end=${today}`),
+        axios.get(`${API_URL}/total_items_month.php?start=${monthStart}&end=${today}`),
+        axios.get(`${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`),
+      ]);
+
+      const omzet = Number(sales.data.total || 0);
+      const totalPcs = Number(pcs.data.total_pcs || 0);
+
+      const varianText = (variants.data || [])
+        .slice(0, 10)
+        .map((v, i) => {
+          const stock = Number(v.stock_sisa || 0);
+          const warning = stock <= 5 ? " ⚠️ Hampir habis" : "";
+
+          return `${i + 1}. ${v.product} (${v.product_des})
+→ ${v.total_qty} pcs
+→ Rp${formatRupiah(v.total_omzet)}
+→ Stok: ${stock}${warning}`;
+        })
+        .join("\n\n");
+
+      return msg.reply(
+        greeting +
+          `📆 *LAPORAN BULAN INI*\n\n` +
+          `💰 Omzet: Rp${formatRupiah(omzet)}\n` +
+          `📦 Total: ${totalPcs} pcs\n\n` +
+          `🔥 Varian Terlaris:\n${varianText || "-"}`
+      );
+    }
+
+    // =======================
+    // DEFAULT
+    // =======================
     return msg.reply(
       greeting +
-        `Gunakan perintah:\n- laporan harian\n- laporan mingguan\n- laporan bulanan\n- laporan lengkap`
+        `Gunakan perintah:\n
+- laporan harian
+- laporan mingguan
+- laporan bulanan
+- laporan lengkap`
     );
   } catch (err) {
     console.error(err);
