@@ -1,13 +1,9 @@
-// =======================
-// FIX MAC M1
-// =======================
-process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true";
+require("dotenv").config();
 
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const QRCode = require("qrcode");
 const axios = require("axios");
 const express = require("express");
-require("dotenv").config();
 
 const API_URL = "https://jamuanggerwaras.com/lord/api";
 const app = express();
@@ -16,10 +12,10 @@ let qrImage = "";
 let isReady = false;
 
 // =======================
-// USER
+// WHITELIST
 // =======================
 const USERS = [
-  { name: "Bapak Hasan", numbers: ["17867468840", "112786294226994"] },
+  { name: "Bapakku", numbers: ["17867468840", "112786294226994"] },
   { name: "Ibu Sari", numbers: ["6282142570378"] },
   { name: "Bapak Adi", numbers: ["10600096755791"] },
 ];
@@ -29,8 +25,11 @@ const greetedUsers = {};
 // =======================
 // HELPER
 // =======================
-const formatRupiah = (v) => Number(v || 0).toLocaleString("id-ID");
-const getDate = (d) => d.toISOString().split("T")[0];
+const formatRupiah = (v) =>
+  Number(v || 0).toLocaleString("id-ID");
+
+const getDate = (d) =>
+  d.toISOString().split("T")[0];
 
 const getUser = (sender) =>
   USERS.find((u) => u.numbers.includes(sender));
@@ -58,15 +57,18 @@ const formatVarian = (data, limit = 5) => {
 };
 
 // =======================
-// WHATSAPP INIT (MAC M1)
+// WHATSAPP CLIENT (RAILWAY SAFE)
 // =======================
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
     headless: true,
-    executablePath:
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+    ],
   },
 });
 
@@ -75,7 +77,7 @@ const client = new Client({
 // =======================
 client.on("qr", async (qr) => {
   qrImage = await QRCode.toDataURL(qr);
-  console.log("Scan QR: http://localhost:3000");
+  console.log("QR siap - buka web Railway kamu");
 });
 
 client.on("ready", () => {
@@ -84,19 +86,25 @@ client.on("ready", () => {
 });
 
 // =======================
-// WEB
+// WEB (UNTUK QR)
 // =======================
 app.get("/", (req, res) => {
-  if (isReady) return res.send("<h2>✅ WhatsApp Connected</h2>");
+  if (isReady) {
+    return res.send("<h2>✅ WhatsApp Connected</h2>");
+  }
 
-  if (!qrImage) return res.send("<h2>Menunggu QR...</h2>");
+  if (!qrImage) {
+    return res.send("<h2>Menunggu QR...</h2>");
+  }
 
   res.send(`<h2>Scan QR</h2><img src="${qrImage}" />`);
 });
 
-app.listen(3000, () =>
-  console.log("Server: http://localhost:3000")
-);
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("Server jalan di port:", PORT);
+});
 
 // =======================
 // BOT
@@ -148,7 +156,7 @@ client.on("message", async (msg) => {
 
       return msg.reply(
         greeting +
-          `📊 LAPORAN ${start} s/d ${end}\n\n` +
+          `📊 ${start} s/d ${end}\n\n` +
           `💰 Rp${formatRupiah(sales.data.total)}\n` +
           `📦 ${pcs.data.total_pcs} pcs\n\n` +
           formatVarian(variants.data, 10)
@@ -212,7 +220,6 @@ client.on("message", async (msg) => {
       );
     }
 
-    // =======================
     return msg.reply(
       greeting +
         `Perintah:\n
