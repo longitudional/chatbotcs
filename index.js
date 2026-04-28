@@ -1,5 +1,6 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
+const QRCode = require("qrcode");
 const axios = require("axios");
 const express = require("express");
 require("dotenv").config();
@@ -9,7 +10,10 @@ require("dotenv").config();
 // =======================
 const API_URL = "https://jamuanggerwaras.com/lord/api";
 const app = express();
+
 let latestQR = "";
+let qrImage = "";
+let isReady = false;
 
 // =======================
 // USER MANAGEMENT
@@ -61,16 +65,24 @@ const client = new Client({
 });
 
 // =======================
-// QR HANDLER
+// QR PRO (BASE64)
 // =======================
-client.on("qr", (qr) => {
-  latestQR = qr;
-  console.log("QR updated, buka browser!");
-  qrcode.generate(qr, { small: true });
+client.on("qr", async (qr) => {
+  try {
+    latestQR = qr;
+    qrImage = await QRCode.toDataURL(qr);
+    console.log("QR siap (scan cepat!)");
+  } catch (err) {
+    console.error("QR error:", err);
+  }
 });
 
 // =======================
+// READY
+// =======================
 client.on("ready", () => {
+  isReady = true;
+  qrImage = "";
   console.log("WhatsApp siap!");
 });
 
@@ -78,13 +90,38 @@ client.on("ready", () => {
 // WEB SERVER (QR VIEW)
 // =======================
 app.get("/", (req, res) => {
-  if (!latestQR) {
-    return res.send("QR belum tersedia / sudah login ✅");
+  if (isReady) {
+    return res.send(`
+      <html>
+        <body style="text-align:center; font-family:sans-serif;">
+          <h2>✅ WhatsApp Connected</h2>
+          <p>Bot sudah aktif</p>
+        </body>
+      </html>
+    `);
+  }
+
+  if (!qrImage) {
+    return res.send(`
+      <html>
+        <head><meta http-equiv="refresh" content="5"></head>
+        <body style="text-align:center;">
+          <h2>Menunggu QR...</h2>
+        </body>
+      </html>
+    `);
   }
 
   res.send(`
-    <h2>Scan QR WhatsApp</h2>
-    <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${latestQR}" />
+    <html>
+      <head>
+        <meta http-equiv="refresh" content="10">
+      </head>
+      <body style="text-align:center;">
+        <h2>Scan QR WhatsApp</h2>
+        <img src="${qrImage}" />
+      </body>
+    </html>
   `);
 });
 
@@ -178,10 +215,7 @@ client.on("message", async (msg) => {
 
       const produkText = (products.data || [])
         .slice(0, 3)
-        .map(
-          (p, i) =>
-            `${i + 1}. ${p.product} (${p.total_terjual} pcs)`
-        )
+        .map((p, i) => `${i + 1}. ${p.product} (${p.total_terjual} pcs)`)
         .join("\n");
 
       const varianText = (variants.data || [])
@@ -271,16 +305,9 @@ client.on("message", async (msg) => {
       );
     }
 
-    // =======================
-    // DEFAULT
-    // =======================
     return msg.reply(
       greeting +
-        `Gunakan perintah:\n
-- laporan harian
-- laporan mingguan
-- laporan bulanan
-- laporan lengkap`
+        `Gunakan perintah:\n- laporan harian\n- laporan mingguan\n- laporan bulanan`
     );
   } catch (err) {
     console.error(err);
