@@ -1,16 +1,22 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
 const axios = require("axios");
+const express = require("express");
 require("dotenv").config();
 
 // =======================
+// CONFIG
+// =======================
 const API_URL = "https://jamuanggerwaras.com/lord/api";
+const app = express();
+
+let latestQR = "";
 
 // =======================
-// USER MANAGEMENT (MULTI NOMOR)
+// USER MANAGEMENT
 // =======================
 const USERS = [
-  {
+   {
     name: "Bapak Hasan",
     numbers: ["17867468840", "112786294226994"]
   },
@@ -21,10 +27,9 @@ const USERS = [
   {
     name: "Bapak Adi",
     numbers: ["10600096755791"]
-  }
+  },
 ];
 
-// simpan siapa yang sudah disapa
 const greetedUsers = {};
 
 // =======================
@@ -36,28 +41,61 @@ const formatRupiah = (value) => {
 
 const getDate = (d) => d.toISOString().split("T")[0];
 
-// cari user berdasarkan nomor
 const getUser = (sender) => {
-  return USERS.find(u => u.numbers.includes(sender));
+  return USERS.find((u) => u.numbers.includes(sender));
 };
 
 // =======================
-// INIT
+// INIT WHATSAPP
 // =======================
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process",
+    ],
   },
 });
 
+// =======================
+// QR HANDLER (WEB + LOG)
+// =======================
 client.on("qr", (qr) => {
+  latestQR = qr;
+  console.log("QR updated, buka browser!");
   qrcode.generate(qr, { small: true });
 });
 
+// =======================
+// READY
+// =======================
 client.on("ready", () => {
   console.log("WhatsApp siap!");
+});
+
+// =======================
+// WEB SERVER (UNTUK QR)
+// =======================
+app.get("/", (req, res) => {
+  if (!latestQR) {
+    return res.send("QR belum tersedia atau sudah login ✅");
+  }
+
+  res.send(`
+    <h2>Scan QR WhatsApp</h2>
+    <p>Scan sekali saja</p>
+    <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${latestQR}" />
+  `);
+});
+
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Web server aktif");
 });
 
 // =======================
@@ -65,26 +103,15 @@ client.on("ready", () => {
 // =======================
 client.on("message", async (msg) => {
   try {
-    // =======================
-    // DETEKSI NOMOR PALING AKURAT
-    // =======================
     const contact = await msg.getContact();
     const sender = contact.number;
 
-    console.log("DETECTED:", sender);
-
     const user = getUser(sender);
-
-    // ❌ bukan whitelist
     if (!user) return;
 
     const userName = user.name;
 
-    // =======================
-    // GREETING (1x per USER, bukan nomor)
-    // =======================
     let greeting = "";
-
     if (!greetedUsers[userName]) {
       greeting = `Halo ${userName} 👋\nSelamat datang kembali 😊\n\n`;
       greetedUsers[userName] = true;
@@ -92,9 +119,6 @@ client.on("message", async (msg) => {
 
     const textMsg = msg.body.toLowerCase();
 
-    // =======================
-    // TANGGAL
-    // =======================
     const now = new Date();
     const today = getDate(now);
 
@@ -107,7 +131,7 @@ client.on("message", async (msg) => {
     );
 
     // =======================
-    // 1. CEK PESANAN
+    // CEK INVOICE
     // =======================
     const match = msg.body.match(/INV-\d+/i);
 
@@ -145,7 +169,7 @@ client.on("message", async (msg) => {
     }
 
     // =======================
-    // 2. LAPORAN HARIAN
+    // LAPORAN
     // =======================
     if (textMsg.includes("harian") || textMsg.includes("hari ini")) {
       const res = await axios.get(
@@ -160,9 +184,6 @@ client.on("message", async (msg) => {
       );
     }
 
-    // =======================
-    // 3. LAPORAN MINGGUAN
-    // =======================
     if (textMsg.includes("mingguan")) {
       const res = await axios.get(
         `${API_URL}/sales_range.php?start=${weekStart}&end=${today}`
@@ -176,9 +197,6 @@ client.on("message", async (msg) => {
       );
     }
 
-    // =======================
-    // 4. LAPORAN BULANAN
-    // =======================
     if (textMsg.includes("bulanan") || textMsg.includes("bulan ini")) {
       const res = await axios.get(
         `${API_URL}/sales_range.php?start=${monthStart}&end=${today}`
@@ -192,74 +210,33 @@ client.on("message", async (msg) => {
       );
     }
 
-    // =======================
-    // 5. LAPORAN LENGKAP
-    // =======================
     if (textMsg.includes("laporan lengkap")) {
-      const [sales, pcs, products, variants] = await Promise.all([
+      const [sales, pcs] = await Promise.all([
         axios.get(
           `${API_URL}/sales_range.php?start=${monthStart}&end=${today}`
         ),
         axios.get(
           `${API_URL}/total_items_month.php?start=${monthStart}&end=${today}`
         ),
-        axios.get(`${API_URL}/top_products.php`),
-        axios.get(
-          `${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`
-        ),
       ]);
-
-      const omzet = Number(sales.data.total || 0);
-      const totalPcs = Number(pcs.data.total_pcs || 0);
-
-      const produkText = (products.data || [])
-        .slice(0, 3)
-        .map(
-          (p, i) =>
-            `${i + 1}. ${p.product} (${p.total_terjual} pcs)`
-        )
-        .join("\n");
-
-      const varianText = (variants.data || [])
-        .slice(0, 5)
-        .map((v, i) => {
-          const stock = Number(v.stock_sisa || 0);
-          const warning =
-            stock <= 5 ? " ⚠️ Stok hampir habis!" : "";
-
-          return `${i + 1}. ${v.product} (${v.product_des})
-→ Terjual: ${v.total_qty} pcs
-→ Rp${formatRupiah(v.total_omzet)}
-→ Stok: ${stock}${warning}`;
-        })
-        .join("\n\n");
 
       return msg.reply(
         greeting +
-          `📊 *LAPORAN LENGKAP*\n\n` +
-          `💰 Omzet: Rp${formatRupiah(omzet)}\n` +
-          `📦 Total: ${totalPcs} pcs\n\n` +
-          `🔥 Produk Terlaris:\n${produkText || "-"}\n\n` +
-          `📦 Varian + Stok:\n${varianText || "-"}`
+          `📊 *LAPORAN LENGKAP*\n\n💰 Omzet: Rp${formatRupiah(
+            sales.data.total
+          )}\n📦 Total: ${pcs.data.total_pcs} pcs`
       );
     }
 
-    // =======================
-    // DEFAULT
-    // =======================
     return msg.reply(
       greeting +
-        `Gunakan perintah:\n
-- laporan harian
-- laporan mingguan
-- laporan bulanan
-- laporan lengkap`
+        `Gunakan perintah:\n- laporan harian\n- laporan mingguan\n- laporan bulanan\n- laporan lengkap`
     );
-
   } catch (err) {
     console.error(err);
     msg.reply("Terjadi error 🙏");
   }
 });
 
+// =======================
 client.initialize();
