@@ -1,36 +1,27 @@
+// =======================
+// FIX MAC M1
+// =======================
+process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true";
+
 const { Client, LocalAuth } = require("whatsapp-web.js");
-const qrcode = require("qrcode-terminal");
 const QRCode = require("qrcode");
 const axios = require("axios");
 const express = require("express");
 require("dotenv").config();
 
-// =======================
-// CONFIG
-// =======================
 const API_URL = "https://jamuanggerwaras.com/lord/api";
 const app = express();
 
-let latestQR = "";
 let qrImage = "";
 let isReady = false;
 
 // =======================
-// USER MANAGEMENT
+// USER
 // =======================
 const USERS = [
-  {
-    name: "Bapak Hasan",
-    numbers: ["17867468840", "112786294226994"],
-  },
-  {
-    name: "Ibu Sari",
-    numbers: ["6282142570378"],
-  },
-  {
-    name: "Bapak Adi",
-    numbers: ["10600096755791"],
-  },
+  { name: "Bapak Hasan", numbers: ["17867468840", "112786294226994"] },
+  { name: "Ibu Sari", numbers: ["6282142570378"] },
+  { name: "Bapak Adi", numbers: ["10600096755791"] },
 ];
 
 const greetedUsers = {};
@@ -38,99 +29,77 @@ const greetedUsers = {};
 // =======================
 // HELPER
 // =======================
-const formatRupiah = (value) =>
-  Number(value || 0).toLocaleString("id-ID");
-
+const formatRupiah = (v) => Number(v || 0).toLocaleString("id-ID");
 const getDate = (d) => d.toISOString().split("T")[0];
 
 const getUser = (sender) =>
   USERS.find((u) => u.numbers.includes(sender));
 
+const getStatus = (stock) => {
+  if (stock <= 10) return "❌ Kritis";
+  if (stock <= 50) return "⚠️ Hampir habis";
+  if (stock <= 100) return "🟡 Perlu perhatian";
+  return "✅ Aman";
+};
+
+const formatVarian = (data, limit = 5) => {
+  if (!data || data.length === 0) return "Tidak ada data";
+
+  return data
+    .slice(0, limit)
+    .map((v, i) => {
+      const stock = Number(v.stok_sekarang || 0);
+      return `${i + 1}. ${v.product}
+→ Terjual: ${v.total_terjual || v.total_qty} pcs
+→ Omzet: Rp${formatRupiah(v.total_omzet)}
+→ Stok: ${stock} (${getStatus(stock)})`;
+    })
+    .join("\n\n");
+};
+
 // =======================
-// INIT WHATSAPP
+// WHATSAPP INIT (MAC M1)
 // =======================
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
     headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--no-first-run",
-      "--no-zygote",
-      "--single-process",
-    ],
+    executablePath:
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
   },
 });
 
 // =======================
-// QR PRO (BASE64)
+// QR
 // =======================
 client.on("qr", async (qr) => {
-  try {
-    latestQR = qr;
-    qrImage = await QRCode.toDataURL(qr);
-    console.log("QR siap (scan cepat!)");
-  } catch (err) {
-    console.error("QR error:", err);
-  }
+  qrImage = await QRCode.toDataURL(qr);
+  console.log("Scan QR: http://localhost:3000");
 });
 
-// =======================
-// READY
-// =======================
 client.on("ready", () => {
   isReady = true;
-  qrImage = "";
   console.log("WhatsApp siap!");
 });
 
 // =======================
-// WEB SERVER (QR VIEW)
+// WEB
 // =======================
 app.get("/", (req, res) => {
-  if (isReady) {
-    return res.send(`
-      <html>
-        <body style="text-align:center; font-family:sans-serif;">
-          <h2>✅ WhatsApp Connected</h2>
-          <p>Bot sudah aktif</p>
-        </body>
-      </html>
-    `);
-  }
+  if (isReady) return res.send("<h2>✅ WhatsApp Connected</h2>");
 
-  if (!qrImage) {
-    return res.send(`
-      <html>
-        <head><meta http-equiv="refresh" content="5"></head>
-        <body style="text-align:center;">
-          <h2>Menunggu QR...</h2>
-        </body>
-      </html>
-    `);
-  }
+  if (!qrImage) return res.send("<h2>Menunggu QR...</h2>");
 
-  res.send(`
-    <html>
-      <head>
-        <meta http-equiv="refresh" content="10">
-      </head>
-      <body style="text-align:center;">
-        <h2>Scan QR WhatsApp</h2>
-        <img src="${qrImage}" />
-      </body>
-    </html>
-  `);
+  res.send(`<h2>Scan QR</h2><img src="${qrImage}" />`);
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Web server aktif");
-});
+app.listen(3000, () =>
+  console.log("Server: http://localhost:3000")
+);
 
 // =======================
-// MAIN BOT
+// BOT
 // =======================
 client.on("message", async (msg) => {
   try {
@@ -140,21 +109,20 @@ client.on("message", async (msg) => {
     const user = getUser(sender);
     if (!user) return;
 
-    const userName = user.name;
-
     let greeting = "";
-    if (!greetedUsers[userName]) {
-      greeting = `Halo ${userName} 👋\nSelamat datang kembali 😊\n\n`;
-      greetedUsers[userName] = true;
+    if (!greetedUsers[user.name]) {
+      greeting = `Halo ${user.name} 👋\n\n`;
+      greetedUsers[user.name] = true;
     }
 
-    const textMsg = msg.body.toLowerCase();
+    const text = msg.body.trim().toLowerCase();
 
     const now = new Date();
     const today = getDate(now);
 
     const startWeek = new Date(now);
-    startWeek.setDate(now.getDate() - now.getDay());
+    const day = now.getDay() || 7;
+    if (day !== 1) startWeek.setHours(-24 * (day - 1));
     const weekStart = getDate(startWeek);
 
     const monthStart = getDate(
@@ -162,152 +130,96 @@ client.on("message", async (msg) => {
     );
 
     // =======================
-    // CEK INVOICE
+    // CUSTOM RANGE
     // =======================
-    const match = msg.body.match(/INV-\d+/i);
+    const range = text.match(
+      /laporan\s+(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/
+    );
 
-    if (match) {
-      const invoice = match[0];
+    if (range) {
+      const start = range[1];
+      const end = range[2];
 
-      const res = await axios.get(
-        `${API_URL}/order.php?invoice=${invoice}`
-      );
-
-      if (res.data.error) {
-        return msg.reply(greeting + "Pesanan tidak ditemukan 🙏");
-      }
-
-      let total = 0;
-
-      const detail = res.data
-        .map((i) => {
-          const subtotal =
-            Number(i.qty || 0) * Number(i.price || 0);
-          total += subtotal;
-
-          return `- ${i.product} (${i.product_des}) x${i.qty} → Rp${formatRupiah(
-            subtotal
-          )}`;
-        })
-        .join("\n");
+      const [sales, pcs, variants] = await Promise.all([
+        axios.get(`${API_URL}/sales_range.php?start=${start}&end=${end}`),
+        axios.get(`${API_URL}/total_items_month.php?start=${start}&end=${end}`),
+        axios.get(`${API_URL}/variant_sales.php?start=${start}&end=${end}`),
+      ]);
 
       return msg.reply(
         greeting +
-          `📦 Detail pesanan ${invoice}:\n\n${detail}\n\n💰 Total: Rp${formatRupiah(
-            total
-          )}`
+          `📊 LAPORAN ${start} s/d ${end}\n\n` +
+          `💰 Rp${formatRupiah(sales.data.total)}\n` +
+          `📦 ${pcs.data.total_pcs} pcs\n\n` +
+          formatVarian(variants.data, 10)
       );
     }
 
     // =======================
-    // LAPORAN HARIAN
+    // HARIAN
     // =======================
-    if (textMsg.includes("harian") || textMsg.includes("hari ini")) {
-      const [sales, pcs, products, variants] = await Promise.all([
+    if (text === "laporan harian") {
+      const [sales, pcs, variants] = await Promise.all([
         axios.get(`${API_URL}/sales_range.php?start=${today}&end=${today}`),
         axios.get(`${API_URL}/total_items_month.php?start=${today}&end=${today}`),
-        axios.get(`${API_URL}/top_products.php`),
         axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`),
       ]);
 
-      const omzet = Number(sales.data.total || 0);
-      const totalPcs = Number(pcs.data.total_pcs || 0);
-
-      const produkText = (products.data || [])
-        .slice(0, 3)
-        .map((p, i) => `${i + 1}. ${p.product} (${p.total_terjual} pcs)`)
-        .join("\n");
-
-      const varianText = (variants.data || [])
-        .slice(0, 5)
-        .map(
-          (v, i) =>
-            `${i + 1}. ${v.product} (${v.product_des})
-→ ${v.total_qty} pcs
-→ Rp${formatRupiah(v.total_omzet)}`
-        )
-        .join("\n\n");
-
       return msg.reply(
         greeting +
-          `📅 *LAPORAN HARI INI*\n\n` +
-          `💰 Omzet: Rp${formatRupiah(omzet)}\n` +
-          `📦 Total: ${totalPcs} pcs\n\n` +
-          `🔥 Produk Terlaris:\n${produkText || "-"}\n\n` +
-          `📦 Varian Terlaris:\n${varianText || "-"}`
+          `📅 LAPORAN HARI INI\n\n` +
+          `💰 Rp${formatRupiah(sales.data.total)}\n` +
+          `📦 ${pcs.data.total_pcs} pcs\n\n` +
+          formatVarian(variants.data)
       );
     }
 
     // =======================
-    // LAPORAN MINGGUAN
+    // MINGGUAN
     // =======================
-    if (textMsg.includes("mingguan")) {
+    if (text === "laporan mingguan") {
       const [sales, pcs, variants] = await Promise.all([
         axios.get(`${API_URL}/sales_range.php?start=${weekStart}&end=${today}`),
         axios.get(`${API_URL}/total_items_month.php?start=${weekStart}&end=${today}`),
         axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`),
       ]);
 
-      const omzet = Number(sales.data.total || 0);
-      const totalPcs = Number(pcs.data.total_pcs || 0);
-
-      const varianText = (variants.data || [])
-        .slice(0, 5)
-        .map(
-          (v, i) =>
-            `${i + 1}. ${v.product} (${v.product_des})
-→ ${v.total_qty} pcs
-→ Rp${formatRupiah(v.total_omzet)}`
-        )
-        .join("\n\n");
-
       return msg.reply(
         greeting +
-          `📊 *LAPORAN MINGGU INI*\n\n` +
-          `💰 Omzet: Rp${formatRupiah(omzet)}\n` +
-          `📦 Total: ${totalPcs} pcs\n\n` +
-          `🔥 Varian Terlaris:\n${varianText || "-"}`
+          `📊 LAPORAN MINGGU INI\n\n` +
+          `💰 Rp${formatRupiah(sales.data.total)}\n` +
+          `📦 ${pcs.data.total_pcs} pcs\n\n` +
+          formatVarian(variants.data)
       );
     }
 
     // =======================
-    // LAPORAN BULANAN
+    // BULANAN
     // =======================
-    if (textMsg.includes("bulanan") || textMsg.includes("bulan ini")) {
+    if (text === "laporan bulanan") {
       const [sales, pcs, variants] = await Promise.all([
         axios.get(`${API_URL}/sales_range.php?start=${monthStart}&end=${today}`),
         axios.get(`${API_URL}/total_items_month.php?start=${monthStart}&end=${today}`),
         axios.get(`${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`),
       ]);
 
-      const omzet = Number(sales.data.total || 0);
-      const totalPcs = Number(pcs.data.total_pcs || 0);
-
-      const varianText = (variants.data || [])
-        .slice(0, 10)
-        .map((v, i) => {
-          const stock = Number(v.stock_sisa || 0);
-          const warning = stock <= 5 ? " ⚠️ Hampir habis" : "";
-
-          return `${i + 1}. ${v.product} (${v.product_des})
-→ ${v.total_qty} pcs
-→ Rp${formatRupiah(v.total_omzet)}
-→ Stok: ${stock}${warning}`;
-        })
-        .join("\n\n");
-
       return msg.reply(
         greeting +
-          `📆 *LAPORAN BULAN INI*\n\n` +
-          `💰 Omzet: Rp${formatRupiah(omzet)}\n` +
-          `📦 Total: ${totalPcs} pcs\n\n` +
-          `🔥 Varian Terlaris:\n${varianText || "-"}`
+          `📆 LAPORAN BULAN INI\n\n` +
+          `💰 Rp${formatRupiah(sales.data.total)}\n` +
+          `📦 ${pcs.data.total_pcs} pcs\n\n` +
+          formatVarian(variants.data, 10)
       );
     }
 
+    // =======================
     return msg.reply(
       greeting +
-        `Gunakan perintah:\n- laporan harian\n- laporan mingguan\n- laporan bulanan`
+        `Perintah:\n
+- laporan harian
+- laporan mingguan
+- laporan bulanan
+- laporan YYYY-MM-DD YYYY-MM-DD`
     );
   } catch (err) {
     console.error(err);
@@ -315,5 +227,4 @@ client.on("message", async (msg) => {
   }
 });
 
-// =======================
 client.initialize();
