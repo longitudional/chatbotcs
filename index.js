@@ -262,9 +262,72 @@ client.on("message", async (msg) => {
     }
 
     if (text === "3") {
-      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`);
-      return msg.reply("📆 BULANAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
-    }
+  const { data } = await axios.get(
+    `${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`
+  );
+
+  if (!data.length) {
+    return msg.reply("❌ Tidak ada data bulan ini");
+  }
+
+  let totalQty = 0;
+  let totalOmzet = 0;
+  let totalStock = 0;
+
+  const kritis = [];
+  const warning = [];
+
+  const getStatus = (stock) => {
+    if (stock <= 10) return "❌ Kritis";
+    if (stock <= 50) return "⚠️ Menipis";
+    if (stock <= 100) return "🟡 Perhatian";
+    return "✅ Aman";
+  };
+
+  const detail = data.map((v, i) => {
+    const qty = Number(v.total_terjual || 0);
+    const omzet = Number(v.total_omzet || 0);
+    const stock = Number(v.stok_sekarang || 0);
+
+    totalQty += qty;
+    totalOmzet += omzet;
+    totalStock += stock;
+
+    if (stock <= 10) kritis.push(`${v.product} (${stock})`);
+    else if (stock <= 50) warning.push(`${v.product} (${stock})`);
+
+    return `${i + 1}️⃣ ${v.product}
+📦 Terjual : ${qty} pcs
+💰 Omzet   : Rp${formatRupiah(omzet)}
+📊 Stok    : ${stock} (${getStatus(stock)})`;
+  }).join("\n\n");
+
+  // produk terlaris
+  const top = [...data].sort((a,b)=>b.total_terjual-a.total_terjual)[0];
+
+  return msg.reply(
+`📆 *LAPORAN BULANAN*
+
+💰 Total Omzet : Rp${formatRupiah(totalOmzet)}
+📦 Total Terjual : ${totalQty} pcs
+📦 Total Stok : ${totalStock} pcs
+
+━━━━━━━━━━━━━━━
+🔥 *PRODUK TERLARIS*
+${top.product} (${top.total_terjual} pcs)
+━━━━━━━━━━━━━━━
+
+${detail}
+
+━━━━━━━━━━━━━━━
+⚠️ *PERLU PERHATIAN*
+${warning.length ? warning.map(v => "• " + v).join("\n") : "Tidak ada"}
+
+❌ *KRITIS*
+${kritis.length ? kritis.map(v => "• " + v).join("\n") : "Tidak ada"}
+━━━━━━━━━━━━━━━`
+  );
+}
 
     if (text === "4") {
       const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
