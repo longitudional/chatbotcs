@@ -44,11 +44,12 @@ const formatRupiah = (v) =>
 const getDate = (d) =>
   new Date(d).toISOString().split("T")[0];
 
+// 🔥 STATUS + EMOJI
 const getStatus = (stock) => {
-  if (stock <= 10) return "Kritis";
-  if (stock <= 50) return "Menipis";
-  if (stock <= 100) return "Perhatian";
-  return "Aman";
+  if (stock <= 10) return "❌ Kritis";
+  if (stock <= 50) return "⚠️ Menipis";
+  if (stock <= 100) return "🟡 Perhatian";
+  return "✅ Aman";
 };
 
 const sendToAll = async (text) => {
@@ -100,31 +101,44 @@ async function handleCommand(text, msg) {
   const weekStart = getDate(new Date(Date.now() - 7 * 86400000));
   const monthStart = getDate(new Date(now.getFullYear(), now.getMonth(), 1));
 
-  // STOK
+  // 📦 STOK
   if (text === "stok") {
     const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
     return msg.reply(
-      data.map(v => `${v.product} → ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`).join("\n")
+`📦 *STOK BARANG*\n\n` +
+data.map(v =>
+  `• ${v.product} → ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
+).join("\n")
     );
   }
 
-  // HARIAN
+  // 📅 HARIAN
   if (text === "laporan harian") {
     const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
     return msg.reply(
-      data.map(v => `${v.product}\n${v.total_terjual} pcs\nRp${formatRupiah(v.total_omzet)}`).join("\n\n")
+`📅 *LAPORAN HARIAN*\n\n` +
+data.map(v =>
+`• ${v.product}
+  📦 Qty : ${v.total_terjual}
+  💰 Rp  : ${formatRupiah(v.total_omzet)}`
+).join("\n\n")
     );
   }
 
-  // MINGGUAN
+  // 📊 MINGGUAN
   if (text === "laporan mingguan") {
     const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
     return msg.reply(
-      data.map(v => `${v.product}\n${v.total_terjual} pcs\nRp${formatRupiah(v.total_omzet)}`).join("\n\n")
+`📊 *LAPORAN MINGGUAN*\n\n` +
+data.map(v =>
+`• ${v.product}
+  📦 Qty : ${v.total_terjual}
+  💰 Rp  : ${formatRupiah(v.total_omzet)}`
+).join("\n\n")
     );
   }
 
-  // BULANAN + TOTAL
+  // 📆 BULANAN + TOTAL + EMOJI STOK
   if (text === "laporan bulanan") {
     const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`);
 
@@ -137,27 +151,35 @@ async function handleCommand(text, msg) {
     });
 
     const detail = data.map((v, i) =>
-      `${i + 1}. ${v.product}
-${v.total_terjual} pcs
-Rp${formatRupiah(v.total_omzet)}
-Stok: ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
+`• ${i + 1}. ${v.product}
+  📦 Qty : ${v.total_terjual}
+  💰 Rp  : ${formatRupiah(v.total_omzet)}
+  📊 Stok : ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
     ).join("\n\n");
 
     return msg.reply(
-      `LAPORAN BULANAN\nTotal Omzet: Rp${formatRupiah(totalOmzet)}\nTotal Terjual: ${totalQty}\n\n${detail}`
+`📆 *LAPORAN BULANAN*
+
+💰 Total Omzet : Rp${formatRupiah(totalOmzet)}
+📦 Total Terjual : ${totalQty}
+
+${detail}`
     );
   }
 
-  // PREDIKSI
+  // 📉 PREDIKSI
   if (text === "prediksi stok") {
     const start = getDate(new Date(Date.now() - 7 * 86400000));
     const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${start}&end=${today}`);
 
     return msg.reply(
-      data.map(v => {
-        const avg = v.total_terjual / 7 || 1;
-        return `${v.product} → pesan dalam ${Math.floor(v.stok_sekarang / avg)} hari`;
-      }).join("\n")
+`📉 *PREDIKSI RESTOCK*\n\n` +
+data.map(v => {
+  const avg = v.total_terjual / 7 || 1;
+  return `• ${v.product}
+  📦 Stok : ${v.stok_sekarang}
+  ⏳ Order dalam : ${Math.floor(v.stok_sekarang / avg)} hari`;
+}).join("\n\n")
     );
   }
 }
@@ -179,49 +201,42 @@ client.on("message", async (msg) => {
     if (!isAllowed) return;
 
     const text = msg.body.toLowerCase().trim();
-
     const isNumberMenu = ["1","2","3","4","5","6"].includes(text);
 
     // MENU
     if (text === "menu" || text === "0") {
       userState[sender] = "menu";
       return msg.reply(
-`MENU:
-1 Harian
-2 Mingguan
-3 Bulanan
-4 Stok
-5 Prediksi
-6 Rentang`
+`📊 *MENU*
+1️⃣ Laporan Harian
+2️⃣ Laporan Mingguan
+3️⃣ Laporan Bulanan
+4️⃣ Cek Stok
+5️⃣ Prediksi Restock
+6️⃣ Laporan Rentang`
       );
     }
 
-    // HANDLE ANGKA LANGSUNG
+    // HANDLE ANGKA
     if (userState[sender] === "menu" || isNumberMenu) {
-
       if (userState[sender] === "menu") delete userState[sender];
 
       switch (text) {
-        case "1":
-          return handleCommand("laporan harian", msg);
-        case "2":
-          return handleCommand("laporan mingguan", msg);
-        case "3":
-          return handleCommand("laporan bulanan", msg);
-        case "4":
-          return handleCommand("stok", msg);
-        case "5":
-          return handleCommand("prediksi stok", msg);
+        case "1": return handleCommand("laporan harian", msg);
+        case "2": return handleCommand("laporan mingguan", msg);
+        case "3": return handleCommand("laporan bulanan", msg);
+        case "4": return handleCommand("stok", msg);
+        case "5": return handleCommand("prediksi stok", msg);
         case "6":
           userState[sender] = "range";
-          return msg.reply("Format: YYYY-MM-DD YYYY-MM-DD");
+          return msg.reply("📅 Format: YYYY-MM-DD YYYY-MM-DD");
       }
     }
 
     // RANGE
     if (userState[sender] === "range") {
       const m = text.match(/(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/);
-      if (!m) return msg.reply("Format salah");
+      if (!m) return msg.reply("❌ Format salah");
 
       delete userState[sender];
 
@@ -230,11 +245,13 @@ client.on("message", async (msg) => {
       );
 
       return msg.reply(
-        data.map(v => `${v.product} ${v.total_terjual} Rp${formatRupiah(v.total_omzet)}`).join("\n")
+`📊 *LAPORAN ${m[1]} s/d ${m[2]}*\n\n` +
+data.map(v =>
+  `• ${v.product} → ${v.total_terjual} pcs (Rp${formatRupiah(v.total_omzet)})`
+).join("\n")
       );
     }
 
-    // FALLBACK
     await handleCommand(text, msg);
 
   } catch (err) {
@@ -244,7 +261,7 @@ client.on("message", async (msg) => {
 });
 
 // =======================
-// AUTO REPORT 18:00 WIB
+// AUTO REPORT
 // =======================
 cron.schedule("0 18 * * *", async () => {
   const today = getDate(new Date());
@@ -254,13 +271,13 @@ cron.schedule("0 18 * * *", async () => {
   );
 
   await sendToAll(
-    "AUTO REPORT\n" +
-    data.slice(0, 5).map(v => `${v.product} ${v.total_terjual}`).join("\n")
+"📊 *AUTO REPORT*\n\n" +
+data.slice(0,5).map(v => `• ${v.product} → ${v.total_terjual}`).join("\n")
   );
 }, { timezone: "Asia/Jakarta" });
 
 // =======================
-// ALERT RABU 11:00 WIB
+// ALERT
 // =======================
 cron.schedule("0 11 * * 3", async () => {
   const today = getDate(new Date());
@@ -274,8 +291,8 @@ cron.schedule("0 11 * * 3", async () => {
   if (!kritis.length) return;
 
   await sendToAll(
-    "STOK MENIPIS\n" +
-    kritis.map(v => `${v.product} (${v.stok_sekarang})`).join("\n")
+"🚨 *STOK MENIPIS*\n\n" +
+kritis.map(v => `• ${v.product} (${v.stok_sekarang})`).join("\n")
   );
 }, { timezone: "Asia/Jakarta" });
 
