@@ -252,38 +252,56 @@ Stok: ${v.stok_sekarang}
 // =======================
 // AUTO REPORT JAM 09
 // =======================
-cron.schedule("0 9 * * *", async () => {
+cron.schedule("0 18 * * *", async () => {
+  console.log("AUTO REPORT 18:00 WIB");
+
   const today = getDate(new Date());
 
-  const { data } = await axios.get(
-    `${API_URL}/variant_sales.php?start=${today}&end=${today}`
-  );
+  try {
+    const { data } = await axios.get(
+      `${API_URL}/variant_sales.php?start=${today}&end=${today}`
+    );
 
-  const result = data.slice(0,5).map(v =>
-    `${v.product} → ${v.total_terjual}`
-  ).join("\n");
+    const result = data.slice(0, 5).map(v =>
+      `${v.product} → ${v.total_terjual} pcs (Rp${formatRupiah(v.total_omzet)})`
+    ).join("\n");
 
-  await sendToAll("📅 AUTO REPORT 09:00\n\n" + result);
+    await sendToAll(
+      `📅 *AUTO REPORT HARIAN (18:00)*\n\n` +
+      result
+    );
+
+  } catch (err) {
+    console.error("ERROR AUTO REPORT:", err.message);
+  }
+}, {
+  timezone: "Asia/Jakarta"
 });
-
 // =======================
 // ALERT STOK
 // =======================
-cron.schedule("*/30 * * * *", async () => {
+cron.schedule("0 11 * * 3", async () => {
+  console.log("JALAN ALERT STOK RABU 11 SIANG");
+
   const today = getDate(new Date());
 
-  const { data } = await axios.get(
-    `${API_URL}/variant_sales.php?start=${today}&end=${today}`
-  );
+  try {
+    const { data } = await axios.get(
+      `${API_URL}/variant_sales.php?start=${today}&end=${today}`
+    );
 
-  const kritis = data.filter(v => v.stok_sekarang <= 50);
+    const kritis = data.filter(v => Number(v.stok_sekarang) <= 50);
 
-  if (!kritis.length) return;
+    if (!kritis.length) return;
 
-  await sendToAll(
-    "🚨 STOK MENIPIS\n\n" +
-    kritis.map(v => `${v.product} (${v.stok_sekarang})`).join("\n")
-  );
+    await sendToAll(
+      "🚨 *ALERT STOK RABU*\n\n" +
+      kritis.map(v => `${v.product} (${v.stok_sekarang})`).join("\n")
+    );
+
+  } catch (err) {
+    console.error("ERROR ALERT:", err.message);
+  }
 });
 
 // =======================
