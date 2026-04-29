@@ -252,15 +252,57 @@ client.on("message", async (msg) => {
 
     // OPSI
     if (text === "1") {
-      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
-      return msg.reply("📅 HARIAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
-    }
+  const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
 
+  let totalQty = 0;
+  let totalOmzet = 0;
+
+  const detail = data.map((v,i)=>{
+    totalQty += Number(v.total_terjual||0);
+    totalOmzet += Number(v.total_omzet||0);
+
+    return `${i+1}️⃣ ${v.product}
+📦 ${v.total_terjual} pcs
+💰 Rp${formatRupiah(v.total_omzet)}`;
+  }).join("\n\n");
+
+  return msg.reply(
+`📅 *LAPORAN HARIAN*
+
+💰 Total Omzet : Rp${formatRupiah(totalOmzet)}
+📦 Total Terjual : ${totalQty} pcs
+
+━━━━━━━━━━━━━━━
+
+${detail}`
+  );
+}
     if (text === "2") {
-      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
-      return msg.reply("📊 MINGGUAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
-    }
+  const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
 
+  let totalQty = 0;
+  let totalOmzet = 0;
+
+  const detail = data.map((v,i)=>{
+    totalQty += Number(v.total_terjual||0);
+    totalOmzet += Number(v.total_omzet||0);
+
+    return `${i+1}️⃣ ${v.product}
+📦 ${v.total_terjual} pcs
+💰 Rp${formatRupiah(v.total_omzet)}`;
+  }).join("\n\n");
+
+  return msg.reply(
+`📊 *LAPORAN MINGGUAN*
+
+💰 Total Omzet : Rp${formatRupiah(totalOmzet)}
+📦 Total Terjual : ${totalQty} pcs
+
+━━━━━━━━━━━━━━━
+
+${detail}`
+  );
+}
     if (text === "3") {
   const { data } = await axios.get(
     `${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`
@@ -330,36 +372,76 @@ ${kritis.length ? kritis.map(v => "• " + v).join("\n") : "Tidak ada"}
 }
 
     if (text === "4") {
-      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
-      return msg.reply("📦 STOK\n\n" + data.map(v => `${v.product} ${v.stok_sekarang}`).join("\n"));
-    }
+  const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
 
+  const getStatus = (stock) => {
+    if (stock <= 10) return "❌ Kritis";
+    if (stock <= 50) return "⚠️ Menipis";
+    if (stock <= 100) return "🟡 Perhatian";
+    return "✅ Aman";
+  };
+
+  return msg.reply(
+`📦 *STOK BARANG*
+
+━━━━━━━━━━━━━━━
+
+` +
+data.map((v,i)=>
+`${i+1}️⃣ ${v.product}
+📊 ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
+).join("\n\n")
+  );
+}
     if (text === "5") {
-      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
-      return msg.reply("📉 PREDIKSI\n\n" + data.map(v => v.product).join("\n"));
-    }
+  const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
 
+  return msg.reply(
+`📉 *PREDIKSI RESTOCK*
+
+━━━━━━━━━━━━━━━
+
+` +
+data.map((v,i)=>{
+  const avg = v.total_terjual / 7 || 1;
+  return `${i+1}️⃣ ${v.product}
+📦 Stok : ${v.stok_sekarang}
+⏳ Order dalam : ${Math.floor(v.stok_sekarang / avg)} hari`;
+}).join("\n\n")
+  );
+}
     if (text === "6") {
-      return msg.reply("📅 Format: YYYY-MM-DD YYYY-MM-DD");
-    }
+  return msg.reply(
+`📅 *LAPORAN RENTANG*
+
+Ketik dengan format:
+YYYY-MM-DD YYYY-MM-DD
+
+Contoh:
+2026-04-01 2026-04-15`
+  );
+}
 
     // RANGE
     const m = text.match(/(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/);
-    if (m) {
-      const { data } = await axios.get(
-        `${API_URL}/variant_sales.php?start=${m[1]}&end=${m[2]}`
-      );
+if (m) {
+  const { data } = await axios.get(
+    `${API_URL}/variant_sales.php?start=${m[1]}&end=${m[2]}`
+  );
 
-      return msg.reply("📊 LAPORAN\n\n" +
-        data.map(v => `${v.product} ${v.total_terjual}`).join("\n")
-      );
-    }
+  return msg.reply(
+`📊 *LAPORAN ${m[1]} s/d ${m[2]}*
 
-  } catch (err) {
-    console.log(err);
-    msg.reply("❌ Error");
-  }
-});
+━━━━━━━━━━━━━━━
+
+` +
+data.map((v,i)=>
+`${i+1}️⃣ ${v.product}
+📦 ${v.total_terjual} pcs
+💰 Rp${formatRupiah(v.total_omzet)}`
+).join("\n\n")
+  );
+}
 
 // =======================
 // SMART MONITORING
