@@ -19,6 +19,7 @@ let isReady = false;
 let botState = {
   status: "STARTING",
   startTime: Date.now(),
+  lastReadyTime: Date.now(),
   totalMessages: 0,
   lastMessage: null,
 };
@@ -62,12 +63,24 @@ const getStatus = (stock) => {
   return "✅ Aman";
 };
 
+// kirim ke semua user
 const sendToAll = async (text) => {
   for (const u of USERS) {
     for (const n of u.numbers) {
       const id = n.includes("@") ? n : n + "@c.us";
       await client.sendMessage(id, text).catch(() => {});
     }
+  }
+};
+
+// kirim khusus ke Bapakku
+const sendToBapakku = async (text) => {
+  const bapak = USERS.find(u => u.name === "Bapakku");
+  if (!bapak) return;
+
+  for (const n of bapak.numbers) {
+    const id = n.includes("@") ? n : n + "@c.us";
+    await client.sendMessage(id, text).catch(() => {});
   }
 };
 
@@ -82,14 +95,13 @@ const client = new Client({
   },
 });
 
-// =======================
-// RECONNECT SYSTEM
-// =======================
+// START / RECONNECT
 const startClient = () => {
-  console.log("🚀 Starting WA...");
+  console.log("🚀 Starting WhatsApp...");
   client.initialize();
 };
 
+// EVENT
 client.on("qr", async (qr) => {
   qrImage = await QRCode.toDataURL(qr);
 });
@@ -98,6 +110,8 @@ client.on("ready", () => {
   isReady = true;
   botState.status = "READY";
   botState.startTime = Date.now();
+  botState.lastReadyTime = Date.now();
+
   console.log("✅ WhatsApp siap!");
   sendToAll("✅ Bot ONLINE");
 });
@@ -107,12 +121,8 @@ client.on("disconnected", (reason) => {
   botState.status = "DISCONNECTED";
 
   console.log("❌ Disconnected:", reason);
-  sendToAll("❌ Bot DISCONNECTED");
 
-  setTimeout(() => {
-    console.log("🔄 Reconnecting...");
-    startClient();
-  }, 5000);
+  setTimeout(() => startClient(), 5000);
 });
 
 client.on("auth_failure", (msg) => {
@@ -123,41 +133,13 @@ client.on("auth_failure", (msg) => {
 // WEB
 // =======================
 app.get("/", (req, res) => {
-  if (isReady) return res.send("Connected");
-  if (!qrImage) return res.send("Menunggu QR...");
+  if (isReady) return res.send("✅ Connected");
+  if (!qrImage) return res.send("Scan QR...");
   res.send(`<img src="${qrImage}" />`);
 });
 
-// STATUS API
 app.get("/status", (req, res) => {
-  const uptime = Math.floor((Date.now() - botState.startTime) / 1000);
-
-  res.json({
-    status: botState.status,
-    uptime: uptime,
-    total_messages: botState.totalMessages,
-    last_message: botState.lastMessage,
-  });
-});
-
-// MONITOR WEB
-app.get("/monitor", (req, res) => {
-  res.send(`
-  <h2>📊 BOT MONITOR</h2>
-  <div id="data">Loading...</div>
-  <script>
-    async function load(){
-      const r = await fetch('/status');
-      const d = await r.json();
-      document.getElementById('data').innerHTML =
-        "Status: " + d.status + "<br>" +
-        "Uptime: " + d.uptime + "s<br>" +
-        "Total Msg: " + d.total_messages + "<br>" +
-        "Last Msg: " + d.last_message;
-    }
-    setInterval(load,2000); load();
-  </script>
-  `);
+  res.json(botState);
 });
 
 app.listen(process.env.PORT || 3000);
@@ -173,12 +155,26 @@ async function handleCommand(text, msg) {
 
   if (text === "stok") {
     const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
-    return msg.reply("📦 STOK\n\n" + data.map(v => `• ${v.product} (${v.stok_sekarang})`).join("\n"));
+    return msg.reply(
+      "📦 *STOK*\n\n" +
+      data.map(v => `• ${v.product} → ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`).join("\n")
+    );
   }
 
   if (text === "laporan harian") {
     const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
-    return msg.reply("📅 HARIAN\n\n" + data.map(v => `${v.product} ${v.total_terjual} Rp${formatRupiah(v.total_omzet)}`).join("\n"));
+    return msg.reply(
+      "📅 *HARIAN*\n\n" +
+      data.map(v => `${v.product} → ${v.total_terjual} pcs (Rp${formatRupiah(v.total_omzet)})`).join("\n")
+    );
+  }
+
+  if (text === "laporan mingguan") {
+    const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
+    return msg.reply(
+      "📊 *MINGGUAN*\n\n" +
+      data.map(v => `${v.product} → ${v.total_terjual} pcs (Rp${formatRupiah(v.total_omzet)})`).join("\n")
+    );
   }
 
   if (text === "laporan bulanan") {
@@ -191,16 +187,30 @@ async function handleCommand(text, msg) {
     });
 
     return msg.reply(
-`📆 BULANAN
+`📆 *BULANAN*
 💰 Rp${formatRupiah(totalOmzet)}
 📦 ${totalQty}
 
-` + data.map(v =>
+` +
+data.map(v =>
 `• ${v.product}
   📦 ${v.total_terjual}
   💰 Rp${formatRupiah(v.total_omzet)}
   📊 ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
 ).join("\n\n")
+    );
+  }
+
+  if (text === "prediksi stok") {
+    const start = getDate(new Date(Date.now() - 7 * 86400000));
+    const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${start}&end=${today}`);
+
+    return msg.reply(
+      "📉 *PREDIKSI*\n\n" +
+      data.map(v => {
+        const avg = v.total_terjual / 7 || 1;
+        return `${v.product} → order ${Math.floor(v.stok_sekarang / avg)} hari`;
+      }).join("\n")
     );
   }
 }
@@ -228,15 +238,48 @@ client.on("message", async (msg) => {
 
     if (text === "menu" || text === "0") {
       userState[sender] = "menu";
-      return msg.reply("📊 MENU\n1 Harian\n2 Mingguan\n3 Bulanan\n4 Stok\n5 Prediksi\n6 Rentang");
+      return msg.reply(
+`📊 *MENU*
+1️⃣ Harian
+2️⃣ Mingguan
+3️⃣ Bulanan
+4️⃣ Stok
+5️⃣ Prediksi
+6️⃣ Rentang`
+      );
     }
 
     if (userState[sender] === "menu" || isNumber) {
       if (userState[sender]) delete userState[sender];
 
-      if (text === "1") return handleCommand("laporan harian", msg);
-      if (text === "3") return handleCommand("laporan bulanan", msg);
-      if (text === "4") return handleCommand("stok", msg);
+      switch (text) {
+        case "1": return handleCommand("laporan harian", msg);
+        case "2": return handleCommand("laporan mingguan", msg);
+        case "3": return handleCommand("laporan bulanan", msg);
+        case "4": return handleCommand("stok", msg);
+        case "5": return handleCommand("prediksi stok", msg);
+        case "6":
+          userState[sender] = "range";
+          return msg.reply("📅 Format: YYYY-MM-DD YYYY-MM-DD");
+      }
+    }
+
+    if (userState[sender] === "range") {
+      const m = text.match(/(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/);
+      if (!m) return msg.reply("❌ Format salah");
+
+      delete userState[sender];
+
+      const { data } = await axios.get(
+        `${API_URL}/variant_sales.php?start=${m[1]}&end=${m[2]}`
+      );
+
+      return msg.reply(
+        "📊 *LAPORAN*\n\n" +
+        data.map(v =>
+          `${v.product} → ${v.total_terjual} pcs (Rp${formatRupiah(v.total_omzet)})`
+        ).join("\n")
+      );
     }
 
   } catch (err) {
@@ -245,14 +288,27 @@ client.on("message", async (msg) => {
 });
 
 // =======================
-// AUTO PING 30 MENIT
+// SMART MONITORING
+// =======================
+setInterval(async () => {
+  const now = Date.now();
+
+  if (!isReady && (now - botState.lastReadyTime > 30 * 60 * 1000)) {
+    console.log("🚨 BOT DOWN > 30 MENIT");
+    await sendToBapakku("🚨 Bot mati lebih dari 30 menit!");
+    botState.lastReadyTime = now;
+  }
+
+}, 10 * 60 * 1000);
+
+// =======================
+// AUTO PING (30 menit)
 // =======================
 const APP_URL = process.env.APP_URL;
 
 setInterval(() => {
   if (!APP_URL) return;
-  https.get(APP_URL, () => console.log("🔄 Ping OK"))
-    .on("error", err => console.log("Ping error:", err.message));
+  https.get(APP_URL, () => console.log("🔄 Ping OK"));
 }, 30 * 60 * 1000);
 
 // =======================
