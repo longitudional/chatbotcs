@@ -13,7 +13,7 @@ let qrImage = "";
 let isReady = false;
 
 // =======================
-// MONITORING STATE
+// MONITORING
 // =======================
 let botState = {
   status: "STARTING",
@@ -56,7 +56,7 @@ const sendToAll = async (text) => {
   for (const u of USERS) {
     for (const n of u.numbers) {
       const id = n.includes("@") ? n : n + "@c.us";
-      await client.sendMessage(id).catch(() => {});
+      await client.sendMessage(id, text).catch(() => {});
     }
   }
 };
@@ -83,7 +83,7 @@ const client = new Client({
 });
 
 const startClient = () => {
-  console.log("🚀 Start WA");
+  console.log("🚀 Starting WA...");
   client.initialize();
 };
 
@@ -97,7 +97,7 @@ client.on("ready", async () => {
   botState.startTime = Date.now();
   botState.lastReadyTime = Date.now();
 
-  console.log("✅ READY");
+  console.log("✅ WhatsApp READY");
 
   if (!hasNotifiedOnline) {
     await sendToAll("✅ Bot ONLINE");
@@ -118,7 +118,7 @@ client.on("disconnected", () => {
 // =======================
 app.get("/", (req, res) => {
   if (isReady) return res.send("✅ Connected");
-  if (!qrImage) return res.send("Scan QR");
+  if (!qrImage) return res.send("Scan QR...");
   res.send(`<img src="${qrImage}" />`);
 });
 
@@ -153,7 +153,7 @@ app.get("/analytics", async (req, res) => {
 });
 
 // =======================
-// DASHBOARD PRO
+// DASHBOARD
 // =======================
 app.get("/monitor", (req, res) => {
   res.send(`
@@ -195,13 +195,13 @@ function draw(id, labels, data){
 async function load(){
   const s=await fetch('/status').then(r=>r.json());
   document.getElementById('status').innerHTML =
-    (s.status==='READY'?'🟢':'🔴')+" Msg:"+s.totalMessages;
+    (s.status==='READY'?'🟢 ONLINE':'🔴 OFFLINE')+" | Msg:"+s.totalMessages;
 
   const a=await fetch('/analytics').then(r=>r.json());
 
-  draw("d",a.daily.map(x=>x.product),a.daily.map(x=>x.total_terjual));
-  draw("w",a.weekly.map(x=>x.product),a.weekly.map(x=>x.total_terjual));
-  draw("m",a.monthly.map(x=>x.product),a.monthly.map(x=>x.total_terjual));
+  draw("d",a.daily.map(x=>x.product),a.daily.map(x=>Number(x.total_terjual)));
+  draw("w",a.weekly.map(x=>x.product),a.weekly.map(x=>Number(x.total_terjual)));
+  draw("m",a.monthly.map(x=>x.product),a.monthly.map(x=>Number(x.total_terjual)));
 }
 
 setInterval(load,5000); load();
@@ -213,7 +213,7 @@ setInterval(load,5000); load();
 });
 
 // =======================
-// BOT MESSAGE
+// BOT MESSAGE (FIXED)
 // =======================
 client.on("message", async (msg) => {
   try {
@@ -221,6 +221,7 @@ client.on("message", async (msg) => {
     botState.lastMessage = new Date().toLocaleString("id-ID");
 
     let sender = msg.from;
+    if (msg.from.includes("@g.us")) sender = msg.author;
     sender = normalizeNumber(sender);
 
     const isAllowed = USERS.some(u =>
@@ -229,14 +230,71 @@ client.on("message", async (msg) => {
 
     if (!isAllowed) return;
 
-    const text = msg.body.toLowerCase();
+    const text = msg.body.toLowerCase().trim();
 
+    const now = new Date();
+    const today = getDate(now);
+    const weekStart = getDate(new Date(Date.now() - 7 * 86400000));
+    const monthStart = getDate(new Date(now.getFullYear(), now.getMonth(), 1));
+
+    // MENU
     if (text === "menu" || text === "0") {
-      return msg.reply("1 Harian\n2 Mingguan\n3 Bulanan\n4 Stok\n5 Prediksi\n6 Rentang");
+      return msg.reply(
+`📊 MENU
+1️⃣ Harian
+2️⃣ Mingguan
+3️⃣ Bulanan
+4️⃣ Stok
+5️⃣ Prediksi
+6️⃣ Rentang`
+      );
     }
 
-  } catch (e) {
-    console.log(e);
+    // OPSI
+    if (text === "1") {
+      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
+      return msg.reply("📅 HARIAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
+    }
+
+    if (text === "2") {
+      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
+      return msg.reply("📊 MINGGUAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
+    }
+
+    if (text === "3") {
+      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`);
+      return msg.reply("📆 BULANAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
+    }
+
+    if (text === "4") {
+      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
+      return msg.reply("📦 STOK\n\n" + data.map(v => `${v.product} ${v.stok_sekarang}`).join("\n"));
+    }
+
+    if (text === "5") {
+      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
+      return msg.reply("📉 PREDIKSI\n\n" + data.map(v => v.product).join("\n"));
+    }
+
+    if (text === "6") {
+      return msg.reply("📅 Format: YYYY-MM-DD YYYY-MM-DD");
+    }
+
+    // RANGE
+    const m = text.match(/(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/);
+    if (m) {
+      const { data } = await axios.get(
+        `${API_URL}/variant_sales.php?start=${m[1]}&end=${m[2]}`
+      );
+
+      return msg.reply("📊 LAPORAN\n\n" +
+        data.map(v => `${v.product} ${v.total_terjual}`).join("\n")
+      );
+    }
+
+  } catch (err) {
+    console.log(err);
+    msg.reply("❌ Error");
   }
 });
 
