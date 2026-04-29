@@ -13,7 +13,7 @@ let qrImage = "";
 let isReady = false;
 
 // =======================
-// MONITORING
+// STATE
 // =======================
 let botState = {
   status: "STARTING",
@@ -97,7 +97,7 @@ client.on("ready", async () => {
   botState.startTime = Date.now();
   botState.lastReadyTime = Date.now();
 
-  console.log("✅ WhatsApp READY");
+  console.log("✅ READY");
 
   if (!hasNotifiedOnline) {
     await sendToAll("✅ Bot ONLINE");
@@ -127,7 +127,7 @@ app.get("/status", (req, res) => {
 });
 
 // =======================
-// ANALYTICS API
+// ANALYTICS
 // =======================
 app.get("/analytics", async (req, res) => {
   try {
@@ -144,7 +144,7 @@ app.get("/analytics", async (req, res) => {
     res.json({
       daily: daily.data,
       weekly: weekly.data,
-      monthly: monthly.data
+      monthly: monthly.data,
     });
 
   } catch {
@@ -157,63 +157,24 @@ app.get("/analytics", async (req, res) => {
 // =======================
 app.get("/monitor", (req, res) => {
   res.send(`
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<style>
-body{background:#0f172a;color:#fff;font-family:Arial;padding:20px}
-canvas{background:#1e293b;border-radius:10px;padding:10px}
-</style>
-</head>
-<body>
-
-<h2>📊 Dashboard</h2>
-<div id="status"></div>
-
-<h3>Harian</h3><canvas id="d"></canvas>
-<h3>Mingguan</h3><canvas id="w"></canvas>
-<h3>Bulanan</h3><canvas id="m"></canvas>
-
-<script>
-let charts={};
-
-function draw(id, labels, data){
-  if(!charts[id]){
-    charts[id]=new Chart(document.getElementById(id),{
-      type:'bar',
-      data:{labels:labels,datasets:[{data:data}]}
-    });
-  }else{
-    charts[id].data.labels=labels;
-    charts[id].data.datasets[0].data=data;
-    charts[id].update();
-  }
-}
-
-async function load(){
-  const s=await fetch('/status').then(r=>r.json());
-  document.getElementById('status').innerHTML =
-    (s.status==='READY'?'🟢 ONLINE':'🔴 OFFLINE')+" | Msg:"+s.totalMessages;
-
-  const a=await fetch('/analytics').then(r=>r.json());
-
-  draw("d",a.daily.map(x=>x.product),a.daily.map(x=>Number(x.total_terjual)));
-  draw("w",a.weekly.map(x=>x.product),a.weekly.map(x=>Number(x.total_terjual)));
-  draw("m",a.monthly.map(x=>x.product),a.monthly.map(x=>Number(x.total_terjual)));
-}
-
-setInterval(load,5000); load();
-</script>
-
-</body>
-</html>
+  <html>
+  <body style="background:#111;color:#fff;font-family:Arial">
+  <h2>📊 Dashboard</h2>
+  <div id="status"></div>
+  <script>
+    setInterval(async ()=>{
+      const s = await fetch('/status').then(r=>r.json());
+      document.getElementById('status').innerText =
+        (s.status==="READY"?"🟢":"🔴")+" Msg:"+s.totalMessages;
+    },2000);
+  </script>
+  </body>
+  </html>
   `);
 });
 
 // =======================
-// BOT MESSAGE (FIXED)
+// BOT MESSAGE
 // =======================
 client.on("message", async (msg) => {
   try {
@@ -227,7 +188,6 @@ client.on("message", async (msg) => {
     const isAllowed = USERS.some(u =>
       u.numbers.some(n => normalizeNumber(n) === sender)
     );
-
     if (!isAllowed) return;
 
     const text = msg.body.toLowerCase().trim();
@@ -239,212 +199,83 @@ client.on("message", async (msg) => {
 
     // MENU
     if (text === "menu" || text === "0") {
-      return msg.reply(
-`📊 MENU
+      return msg.reply(`📊 MENU
 1️⃣ Harian
 2️⃣ Mingguan
 3️⃣ Bulanan
 4️⃣ Stok
 5️⃣ Prediksi
-6️⃣ Rentang`
-      );
+6️⃣ Rentang`);
     }
 
-    // OPSI
+    // HARIAN
     if (text === "1") {
-  const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
+      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
+      return msg.reply("📅 HARIAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
+    }
 
-  let totalQty = 0;
-  let totalOmzet = 0;
-
-  const detail = data.map((v,i)=>{
-    totalQty += Number(v.total_terjual||0);
-    totalOmzet += Number(v.total_omzet||0);
-
-    return `${i+1}️⃣ ${v.product}
-📦 ${v.total_terjual} pcs
-💰 Rp${formatRupiah(v.total_omzet)}`;
-  }).join("\n\n");
-
-  return msg.reply(
-`📅 *LAPORAN HARIAN*
-
-💰 Total Omzet : Rp${formatRupiah(totalOmzet)}
-📦 Total Terjual : ${totalQty} pcs
-
-━━━━━━━━━━━━━━━
-
-${detail}`
-  );
-}
+    // MINGGUAN
     if (text === "2") {
-  const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
+      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
+      return msg.reply("📊 MINGGUAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
+    }
 
-  let totalQty = 0;
-  let totalOmzet = 0;
-
-  const detail = data.map((v,i)=>{
-    totalQty += Number(v.total_terjual||0);
-    totalOmzet += Number(v.total_omzet||0);
-
-    return `${i+1}️⃣ ${v.product}
-📦 ${v.total_terjual} pcs
-💰 Rp${formatRupiah(v.total_omzet)}`;
-  }).join("\n\n");
-
-  return msg.reply(
-`📊 *LAPORAN MINGGUAN*
-
-💰 Total Omzet : Rp${formatRupiah(totalOmzet)}
-📦 Total Terjual : ${totalQty} pcs
-
-━━━━━━━━━━━━━━━
-
-${detail}`
-  );
-}
+    // BULANAN (FULL)
     if (text === "3") {
-  const { data } = await axios.get(
-    `${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`
-  );
+      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`);
 
-  if (!data.length) {
-    return msg.reply("❌ Tidak ada data bulan ini");
-  }
+      let total = 0;
+      let omzet = 0;
 
-  let totalQty = 0;
-  let totalOmzet = 0;
-  let totalStock = 0;
+      const detail = data.map((v,i)=>{
+        total += Number(v.total_terjual||0);
+        omzet += Number(v.total_omzet||0);
 
-  const kritis = [];
-  const warning = [];
+        return `${i+1}️⃣ ${v.product}
+📦 ${v.total_terjual}
+💰 Rp${formatRupiah(v.total_omzet)}
+📊 ${v.stok_sekarang}`;
+      }).join("\n\n");
 
-  const getStatus = (stock) => {
-    if (stock <= 10) return "❌ Kritis";
-    if (stock <= 50) return "⚠️ Menipis";
-    if (stock <= 100) return "🟡 Perhatian";
-    return "✅ Aman";
-  };
+      return msg.reply(`📆 BULANAN
 
-  const detail = data.map((v, i) => {
-    const qty = Number(v.total_terjual || 0);
-    const omzet = Number(v.total_omzet || 0);
-    const stock = Number(v.stok_sekarang || 0);
+💰 Rp${formatRupiah(omzet)}
+📦 ${total}
 
-    totalQty += qty;
-    totalOmzet += omzet;
-    totalStock += stock;
+${detail}`);
+    }
 
-    if (stock <= 10) kritis.push(`${v.product} (${stock})`);
-    else if (stock <= 50) warning.push(`${v.product} (${stock})`);
-
-    return `${i + 1}️⃣ ${v.product}
-📦 Terjual : ${qty} pcs
-💰 Omzet   : Rp${formatRupiah(omzet)}
-📊 Stok    : ${stock} (${getStatus(stock)})`;
-  }).join("\n\n");
-
-  // produk terlaris
-  const top = [...data].sort((a,b)=>b.total_terjual-a.total_terjual)[0];
-
-  return msg.reply(
-`📆 *LAPORAN BULANAN*
-
-💰 Total Omzet : Rp${formatRupiah(totalOmzet)}
-📦 Total Terjual : ${totalQty} pcs
-📦 Total Stok : ${totalStock} pcs
-
-━━━━━━━━━━━━━━━
-🔥 *PRODUK TERLARIS*
-${top.product} (${top.total_terjual} pcs)
-━━━━━━━━━━━━━━━
-
-${detail}
-
-━━━━━━━━━━━━━━━
-⚠️ *PERLU PERHATIAN*
-${warning.length ? warning.map(v => "• " + v).join("\n") : "Tidak ada"}
-
-❌ *KRITIS*
-${kritis.length ? kritis.map(v => "• " + v).join("\n") : "Tidak ada"}
-━━━━━━━━━━━━━━━`
-  );
-}
-
+    // STOK
     if (text === "4") {
-  const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
+      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
+      return msg.reply("📦 STOK\n\n" + data.map(v => `${v.product} ${v.stok_sekarang}`).join("\n"));
+    }
 
-  const getStatus = (stock) => {
-    if (stock <= 10) return "❌ Kritis";
-    if (stock <= 50) return "⚠️ Menipis";
-    if (stock <= 100) return "🟡 Perhatian";
-    return "✅ Aman";
-  };
-
-  return msg.reply(
-`📦 *STOK BARANG*
-
-━━━━━━━━━━━━━━━
-
-` +
-data.map((v,i)=>
-`${i+1}️⃣ ${v.product}
-📊 ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
-).join("\n\n")
-  );
-}
+    // PREDIKSI
     if (text === "5") {
-  const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
+      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
+      return msg.reply("📉 PREDIKSI\n\n" + data.map(v => v.product).join("\n"));
+    }
 
-  return msg.reply(
-`📉 *PREDIKSI RESTOCK*
-
-━━━━━━━━━━━━━━━
-
-` +
-data.map((v,i)=>{
-  const avg = v.total_terjual / 7 || 1;
-  return `${i+1}️⃣ ${v.product}
-📦 Stok : ${v.stok_sekarang}
-⏳ Order dalam : ${Math.floor(v.stok_sekarang / avg)} hari`;
-}).join("\n\n")
-  );
-}
+    // RENTANG
     if (text === "6") {
-  return msg.reply(
-`📅 *LAPORAN RENTANG*
+      return msg.reply("📅 Format: YYYY-MM-DD YYYY-MM-DD");
+    }
 
-Ketik dengan format:
-YYYY-MM-DD YYYY-MM-DD
-
-Contoh:
-2026-04-01 2026-04-15`
-  );
-}
-
-    // RANGE
     const m = text.match(/(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/);
-if (m) {
-  const { data } = await axios.get(
-    `${API_URL}/variant_sales.php?start=${m[1]}&end=${m[2]}`
-  );
+    if (m) {
+      const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${m[1]}&end=${m[2]}`);
+      return msg.reply("📊 LAPORAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
+    }
 
-  return msg.reply(
-`📊 *LAPORAN ${m[1]} s/d ${m[2]}*
-
-━━━━━━━━━━━━━━━
-
-` +
-data.map((v,i)=>
-`${i+1}️⃣ ${v.product}
-📦 ${v.total_terjual} pcs
-💰 Rp${formatRupiah(v.total_omzet)}`
-).join("\n\n")
-  );
-}
+  } catch (err) {
+    console.log(err);
+    msg.reply("❌ Error");
+  }
+});
 
 // =======================
-// SMART MONITORING
+// MONITORING
 // =======================
 setInterval(async () => {
   const now = Date.now();
