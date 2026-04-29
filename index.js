@@ -45,10 +45,10 @@ const getDate = (d) =>
   new Date(d).toISOString().split("T")[0];
 
 const getStatus = (stock) => {
-  if (stock <= 10) return "❌ Kritis";
-  if (stock <= 50) return "⚠️ Menipis";
-  if (stock <= 100) return "🟡 Perlu perhatian";
-  return "✅ Aman";
+  if (stock <= 10) return "Kritis";
+  if (stock <= 50) return "Menipis";
+  if (stock <= 100) return "Perhatian";
+  return "Aman";
 };
 
 const sendToAll = async (text) => {
@@ -81,10 +81,10 @@ client.on("ready", () => {
 });
 
 // =======================
-// WEB (QR only)
+// WEB
 // =======================
 app.get("/", (req, res) => {
-  if (isReady) return res.send("✅ Connected");
+  if (isReady) return res.send("Connected");
   if (!qrImage) return res.send("Menunggu QR...");
   res.send(`<img src="${qrImage}" />`);
 });
@@ -104,7 +104,7 @@ async function handleCommand(text, msg) {
   if (text === "stok") {
     const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
     return msg.reply(
-      data.map(v => `${v.product} ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`).join("\n")
+      data.map(v => `${v.product} → ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`).join("\n")
     );
   }
 
@@ -124,7 +124,7 @@ async function handleCommand(text, msg) {
     );
   }
 
-  // BULANAN
+  // BULANAN + TOTAL
   if (text === "laporan bulanan") {
     const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`);
 
@@ -144,7 +144,7 @@ Stok: ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
     ).join("\n\n");
 
     return msg.reply(
-      `📆 BULANAN\n💰 Rp${formatRupiah(totalOmzet)}\n📦 ${totalQty} pcs\n\n${detail}`
+      `LAPORAN BULANAN\nTotal Omzet: Rp${formatRupiah(totalOmzet)}\nTotal Terjual: ${totalQty}\n\n${detail}`
     );
   }
 
@@ -156,7 +156,7 @@ Stok: ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
     return msg.reply(
       data.map(v => {
         const avg = v.total_terjual / 7 || 1;
-        return `${v.product} → pesan ${Math.floor(v.stok_sekarang / avg)} hari`;
+        return `${v.product} → pesan dalam ${Math.floor(v.stok_sekarang / avg)} hari`;
       }).join("\n")
     );
   }
@@ -172,8 +172,6 @@ client.on("message", async (msg) => {
 
     sender = normalizeNumber(sender);
 
-    console.log("DETECTED:", sender);
-
     const isAllowed = USERS.some(u =>
       u.numbers.some(n => normalizeNumber(n) === sender)
     );
@@ -182,22 +180,26 @@ client.on("message", async (msg) => {
 
     const text = msg.body.toLowerCase().trim();
 
-    // MENU
-    if (text === "menu") {
-      userState[sender] = "menu";
-      return msg.reply(`📊 MENU
+    const isNumberMenu = ["1","2","3","4","5","6"].includes(text);
 
-1. Laporan Harian
-2. Laporan Mingguan
-3. Laporan Bulanan
-4. Cek Stok
-5. Prediksi Restock
-6. Laporan Rentang Tanggal`);
+    // MENU
+    if (text === "menu" || text === "0") {
+      userState[sender] = "menu";
+      return msg.reply(
+`MENU:
+1 Harian
+2 Mingguan
+3 Bulanan
+4 Stok
+5 Prediksi
+6 Rentang`
+      );
     }
 
-    // HANDLE MENU
-    if (userState[sender] === "menu") {
-      delete userState[sender];
+    // HANDLE ANGKA LANGSUNG
+    if (userState[sender] === "menu" || isNumberMenu) {
+
+      if (userState[sender] === "menu") delete userState[sender];
 
       switch (text) {
         case "1":
@@ -213,8 +215,6 @@ client.on("message", async (msg) => {
         case "6":
           userState[sender] = "range";
           return msg.reply("Format: YYYY-MM-DD YYYY-MM-DD");
-        default:
-          return msg.reply("❌ Pilihan tidak valid");
       }
     }
 
@@ -254,7 +254,7 @@ cron.schedule("0 18 * * *", async () => {
   );
 
   await sendToAll(
-    "📊 AUTO REPORT\n" +
+    "AUTO REPORT\n" +
     data.slice(0, 5).map(v => `${v.product} ${v.total_terjual}`).join("\n")
   );
 }, { timezone: "Asia/Jakarta" });
@@ -274,10 +274,9 @@ cron.schedule("0 11 * * 3", async () => {
   if (!kritis.length) return;
 
   await sendToAll(
-    "🚨 STOK MENIPIS\n" +
+    "STOK MENIPIS\n" +
     kritis.map(v => `${v.product} (${v.stok_sekarang})`).join("\n")
   );
 }, { timezone: "Asia/Jakarta" });
 
-// =======================
 client.initialize();
