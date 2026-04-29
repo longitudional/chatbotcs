@@ -1,10 +1,11 @@
 require("dotenv").config();
 
-const { Client, LocalAuth } = require("whatsapp-web.js");
+const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 const QRCode = require("qrcode");
 const axios = require("axios");
 const express = require("express");
 const cron = require("node-cron");
+const { ChartJSNodeCanvas } = require("chartjs-node-canvas");
 
 const API_URL = "https://jamuanggerwaras.com/lord/api";
 const app = express();
@@ -16,28 +17,16 @@ let isReady = false;
 // USER
 // =======================
 const USERS = [
-    {
-    name: "Bapakku",
-    numbers: ["17867468840", "112786294226994", "112786294226994@lid"],
-  },
-  {
-    name: "Ibu Sari",
-    numbers: ["6282142570378", "205419830055064", "205419830055064@lid"],
-  },
-  {
-    name: "Bapak Adi",
-    numbers: ["10600096755791", "10600096755791@lid"],
-  },
+  { name: "Owner", numbers: ["17867468840", "6282142570378"] },
 ];
+
+const userState = {};
 
 // =======================
 // HELPER
 // =======================
-const formatRupiah = (v) =>
-  Number(v || 0).toLocaleString("id-ID");
-
-const getDate = (d) =>
-  new Date(d).toISOString().split("T")[0];
+const formatRupiah = (v) => Number(v || 0).toLocaleString("id-ID");
+const getDate = (d) => new Date(d).toISOString().split("T")[0];
 
 const getStatus = (stock) => {
   if (stock <= 10) return "❌ Kritis";
@@ -46,13 +35,33 @@ const getStatus = (stock) => {
   return "✅ Aman";
 };
 
-const sendToAll = async (text) => {
+const sendToAll = async (msg) => {
   for (const u of USERS) {
     for (const n of u.numbers) {
       const id = n.includes("@") ? n : n + "@c.us";
-      await client.sendMessage(id, text).catch(() => {});
+      await client.sendMessage(id, msg).catch(() => {});
     }
   }
+};
+
+// =======================
+// CHART
+// =======================
+const chart = new ChartJSNodeCanvas({ width: 800, height: 400 });
+
+const generateChart = async (data) => {
+  return await chart.renderToBuffer({
+    type: "bar",
+    data: {
+      labels: data.map((v) => v.product),
+      datasets: [
+        {
+          label: "Penjualan",
+          data: data.map((v) => Number(v.total_terjual)),
+        },
+      ],
+    },
+  });
 };
 
 // =======================
@@ -66,9 +75,6 @@ const client = new Client({
   },
 });
 
-// =======================
-// QR
-// =======================
 client.on("qr", async (qr) => {
   qrImage = await QRCode.toDataURL(qr);
 });
@@ -87,7 +93,6 @@ app.get("/", (req, res) => {
   res.send(`<img src="${qrImage}" />`);
 });
 
-// API dashboard
 app.get("/api/data", async (req, res) => {
   const today = getDate(new Date());
   const { data } = await axios.get(
@@ -96,35 +101,24 @@ app.get("/api/data", async (req, res) => {
   res.json(data);
 });
 
-// dashboard web
 app.get("/dashboard", (req, res) => {
   res.send(`
   <html>
-  <head>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  </head>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <body>
-    <h2>📊 Dashboard Penjualan</h2>
-    <canvas id="chart"></canvas>
-
-    <script>
-      async function load(){
-        const res = await fetch('/api/data');
-        const data = await res.json();
-
-        new Chart(document.getElementById('chart'), {
-          type:'bar',
-          data:{
-            labels: data.map(d=>d.product),
-            datasets:[{
-              label:'Qty Terjual',
-              data: data.map(d=>Number(d.total_terjual))
-            }]
-          }
-        });
+  <h2>Dashboard</h2>
+  <canvas id="c"></canvas>
+  <script>
+  fetch('/api/data').then(r=>r.json()).then(d=>{
+    new Chart(document.getElementById('c'),{
+      type:'bar',
+      data:{
+        labels:d.map(x=>x.product),
+        datasets:[{data:d.map(x=>Number(x.total_terjual))}]
       }
-      load();
-    </script>
+    })
+  })
+  </script>
   </body>
   </html>
   `);
@@ -142,46 +136,94 @@ client.on("message", async (msg) => {
 
     sender = sender.replace("@c.us", "").replace("@lid", "");
 
-    if (!USERS.some(u => u.numbers.includes(sender))) return;
+    if (!USERS.some((u) => u.numbers.includes(sender))) return;
 
-    const text = msg.body.toLowerCase();
+    const text = msg.body.toLowerCase().trim();
 
     const now = new Date();
     const today = getDate(now);
-
     const weekStart = getDate(new Date(Date.now() - 7 * 86400000));
     const monthStart = getDate(new Date(now.getFullYear(), now.getMonth(), 1));
 
     // =======================
-    // CEK STOK
+    // MENU
+    // =======================
+    if (text === "menu") {
+      userState[sender] = "menu";
+      return msg.reply(`📊 MENU
+
+1. Harian
+2. Mingguan
+3. Bulanan
+4. Stok
+5. Prediksi
+6. Rentang
+7. Grafik`);
+    }
+
+    // =======================
+    // PILIHAN MENU
+    // =======================
+    if (userState[sender] === "menu") {
+      delete userState[sender];
+
+      if (text === "1") msg.body = "laporan harian";
+      else if (text === "2") msg.body = "laporan mingguan";
+      else if (text === "3") msg.body = "laporan bulanan";
+      else if (text === "4") msg.body = "stok";
+      else if (text === "5") msg.body = "prediksi stok";
+      else if (text === "6") {
+        userState[sender] = "range";
+        return msg.reply("Format: YYYY-MM-DD YYYY-MM-DD");
+      } else if (text === "7") msg.body = "grafik";
+      else return msg.reply("❌ Salah");
+
+    }
+
+    // =======================
+    // RANGE
+    // =======================
+    if (userState[sender] === "range") {
+      const m = text.match(/(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/);
+      if (!m) return msg.reply("Format salah");
+
+      delete userState[sender];
+
+      const { data } = await axios.get(
+        `${API_URL}/variant_sales.php?start=${m[1]}&end=${m[2]}`
+      );
+
+      return msg.reply(
+        data
+          .map((v) => `${v.product} ${v.total_terjual} Rp${formatRupiah(v.total_omzet)}`)
+          .join("\n")
+      );
+    }
+
+    // =======================
+    // STOK
     // =======================
     if (text === "stok") {
       const { data } = await axios.get(
         `${API_URL}/variant_sales.php?start=${today}&end=${today}`
       );
 
-      const result = data.map(v =>
-        `${v.product} → ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
-      ).join("\n");
-
-      return msg.reply("📦 STOK\n\n" + result);
+      return msg.reply(
+        data.map(v => `${v.product} ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`).join("\n")
+      );
     }
 
     // =======================
-    // HARIAN (DETAIL)
+    // HARIAN
     // =======================
     if (text === "laporan harian") {
       const { data } = await axios.get(
         `${API_URL}/variant_sales.php?start=${today}&end=${today}`
       );
 
-      const result = data.map(v =>
-        `${v.product}
-Qty: ${v.total_terjual}
-Rp: ${formatRupiah(v.total_omzet)}`
-      ).join("\n\n");
-
-      return msg.reply("📅 HARIAN\n\n" + result);
+      return msg.reply(
+        data.map(v => `${v.product}\n${v.total_terjual} pcs\nRp${formatRupiah(v.total_omzet)}`).join("\n\n")
+      );
     }
 
     // =======================
@@ -192,117 +234,117 @@ Rp: ${formatRupiah(v.total_omzet)}`
         `${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`
       );
 
-      const result = data.map(v =>
-        `${v.product}
-Qty: ${v.total_terjual}
-Rp: ${formatRupiah(v.total_omzet)}`
-      ).join("\n\n");
-
-      return msg.reply("📊 MINGGUAN\n\n" + result);
+      return msg.reply(
+        data.map(v => `${v.product}\n${v.total_terjual} pcs\nRp${formatRupiah(v.total_omzet)}`).join("\n\n")
+      );
     }
 
     // =======================
-    // BULANAN + STOK
+    // BULANAN + TOTAL
     // =======================
     if (text === "laporan bulanan") {
       const { data } = await axios.get(
         `${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`
       );
 
-      const result = data.map(v =>
-        `${v.product}
-Qty: ${v.total_terjual}
-Rp: ${formatRupiah(v.total_omzet)}
+      let totalQty = 0;
+      let totalOmzet = 0;
+
+      data.forEach(v => {
+        totalQty += Number(v.total_terjual || 0);
+        totalOmzet += Number(v.total_omzet || 0);
+      });
+
+      const detail = data.map((v,i)=>
+        `${i+1}. ${v.product}
+${v.total_terjual} pcs
+Rp${formatRupiah(v.total_omzet)}
 Stok: ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
       ).join("\n\n");
 
-      return msg.reply("📆 BULANAN\n\n" + result);
+      return msg.reply(
+        `📆 BULANAN\n💰 Rp${formatRupiah(totalOmzet)}\n📦 ${totalQty} pcs\n\n${detail}`
+      );
     }
 
     // =======================
-    // PREDIKSI RESTOCK
+    // PREDIKSI
     // =======================
     if (text === "prediksi stok") {
-      const start = getDate(new Date(Date.now() - 7 * 86400000));
+      const start = getDate(new Date(Date.now()-7*86400000));
 
       const { data } = await axios.get(
         `${API_URL}/variant_sales.php?start=${start}&end=${today}`
       );
 
-      const result = data.map(v => {
-        const avg = v.total_terjual / 7 || 1;
-        const days = Math.floor(v.stok_sekarang / avg);
-
-        return `${v.product}
-Stok: ${v.stok_sekarang}
-⚠️ Pesan dalam: ${days} hari`;
-      }).join("\n\n");
-
-      return msg.reply("📉 PREDIKSI\n\n" + result);
+      return msg.reply(
+        data.map(v=>{
+          const avg = v.total_terjual/7 || 1;
+          return `${v.product} → pesan ${Math.floor(v.stok_sekarang/avg)} hari`;
+        }).join("\n")
+      );
     }
 
-    msg.reply("Perintah: laporan harian | mingguan | bulanan | stok | prediksi stok");
+    // =======================
+    // GRAFIK
+    // =======================
+    if (text === "grafik") {
+      const { data } = await axios.get(
+        `${API_URL}/variant_sales.php?start=${today}&end=${today}`
+      );
+
+      const buffer = await generateChart(data.slice(0,10));
+
+      const media = new MessageMedia(
+        "image/png",
+        buffer.toString("base64"),
+        "chart.png"
+      );
+
+      return msg.reply(media);
+    }
 
   } catch (err) {
     console.error(err);
-    msg.reply("Error 🙏");
+    msg.reply("Error");
   }
 });
 
 // =======================
-// AUTO REPORT JAM 09
+// AUTO REPORT 18:00 WIB
 // =======================
 cron.schedule("0 18 * * *", async () => {
-  console.log("AUTO REPORT 18:00 WIB");
-
   const today = getDate(new Date());
 
-  try {
-    const { data } = await axios.get(
-      `${API_URL}/variant_sales.php?start=${today}&end=${today}`
-    );
+  const { data } = await axios.get(
+    `${API_URL}/variant_sales.php?start=${today}&end=${today}`
+  );
 
-    const result = data.slice(0, 5).map(v =>
-      `${v.product} → ${v.total_terjual} pcs (Rp${formatRupiah(v.total_omzet)})`
-    ).join("\n");
+  await sendToAll(
+    "📊 AUTO REPORT\n" +
+    data.slice(0,5).map(v=>`${v.product} ${v.total_terjual}`).join("\n")
+  );
+}, { timezone: "Asia/Jakarta" });
 
-    await sendToAll(
-      `📅 *AUTO REPORT HARIAN (18:00)*\n\n` +
-      result
-    );
-
-  } catch (err) {
-    console.error("ERROR AUTO REPORT:", err.message);
-  }
-}, {
-  timezone: "Asia/Jakarta"
-});
 // =======================
-// ALERT STOK
+// ALERT RABU 11:00 WIB
 // =======================
 cron.schedule("0 11 * * 3", async () => {
-  console.log("JALAN ALERT STOK RABU 11 SIANG");
-
   const today = getDate(new Date());
 
-  try {
-    const { data } = await axios.get(
-      `${API_URL}/variant_sales.php?start=${today}&end=${today}`
-    );
+  const { data } = await axios.get(
+    `${API_URL}/variant_sales.php?start=${today}&end=${today}`
+  );
 
-    const kritis = data.filter(v => Number(v.stok_sekarang) <= 50);
+  const kritis = data.filter(v => v.stok_sekarang <= 50);
 
-    if (!kritis.length) return;
+  if (!kritis.length) return;
 
-    await sendToAll(
-      "🚨 *ALERT STOK RABU*\n\n" +
-      kritis.map(v => `${v.product} (${v.stok_sekarang})`).join("\n")
-    );
-
-  } catch (err) {
-    console.error("ERROR ALERT:", err.message);
-  }
-});
+  await sendToAll(
+    "🚨 STOK MENIPIS\n" +
+    kritis.map(v=>`${v.product} (${v.stok_sekarang})`).join("\n")
+  );
+}, { timezone: "Asia/Jakarta" });
 
 // =======================
 client.initialize();
