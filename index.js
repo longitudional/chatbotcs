@@ -5,7 +5,7 @@ const QRCode = require("qrcode");
 const axios = require("axios");
 const express = require("express");
 const cron = require("node-cron");
-const { ChartJSNodeCanvas } = require("chartjs-node-canvas");
+
 
 const API_URL = "https://jamuanggerwaras.com/lord/api";
 const app = express();
@@ -58,22 +58,7 @@ const sendToAll = async (msg) => {
 // =======================
 // CHART
 // =======================
-const chart = new ChartJSNodeCanvas({ width: 800, height: 400 });
 
-const generateChart = async (data) => {
-  return await chart.renderToBuffer({
-    type: "bar",
-    data: {
-      labels: data.map((v) => v.product),
-      datasets: [
-        {
-          label: "Penjualan",
-          data: data.map((v) => Number(v.total_terjual)),
-        },
-      ],
-    },
-  });
-};
 
 // =======================
 // WHATSAPP
