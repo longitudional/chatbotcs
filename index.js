@@ -153,27 +153,6 @@ app.get("/analytics", async (req, res) => {
 });
 
 // =======================
-// DASHBOARD
-// =======================
-app.get("/monitor", (req, res) => {
-  res.send(`
-  <html>
-  <body style="background:#111;color:#fff;font-family:Arial">
-  <h2>📊 Dashboard</h2>
-  <div id="status"></div>
-  <script>
-    setInterval(async ()=>{
-      const s = await fetch('/status').then(r=>r.json());
-      document.getElementById('status').innerText =
-        (s.status==="READY"?"🟢":"🔴")+" Msg:"+s.totalMessages;
-    },2000);
-  </script>
-  </body>
-  </html>
-  `);
-});
-
-// =======================
 // BOT MESSAGE
 // =======================
 client.on("message", async (msg) => {
@@ -208,19 +187,55 @@ client.on("message", async (msg) => {
 6️⃣ Rentang`);
     }
 
-    // HARIAN
+    // ================= HARIAN =================
     if (text === "1") {
       const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
-      return msg.reply("📅 HARIAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
+
+      let totalQty = 0;
+      let totalOmzet = 0;
+
+      const detail = data.map((v,i)=>{
+        totalQty += Number(v.total_terjual||0);
+        totalOmzet += Number(v.total_omzet||0);
+
+        return `${i+1}️⃣ ${v.product}
+📦 ${v.total_terjual} pcs
+💰 Rp${formatRupiah(v.total_omzet)}`;
+      }).join("\n\n");
+
+      return msg.reply(`📅 *HARIAN*
+
+💰 Rp${formatRupiah(totalOmzet)}
+📦 ${totalQty}
+
+${detail}`);
     }
 
-    // MINGGUAN
+    // ================= MINGGUAN =================
     if (text === "2") {
       const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
-      return msg.reply("📊 MINGGUAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
+
+      let totalQty = 0;
+      let totalOmzet = 0;
+
+      const detail = data.map((v,i)=>{
+        totalQty += Number(v.total_terjual||0);
+        totalOmzet += Number(v.total_omzet||0);
+
+        return `${i+1}️⃣ ${v.product}
+📦 ${v.total_terjual} pcs
+💰 Rp${formatRupiah(v.total_omzet)}`;
+      }).join("\n\n");
+
+      return msg.reply(`📊 *MINGGUAN*
+
+💰 Rp${formatRupiah(totalOmzet)}
+📦 ${totalQty}
+
+${detail}`);
     }
 
-    // BULANAN (FULL)
+    // ================= BULANAN =================
     if (text === "3") {
       const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`);
 
@@ -237,7 +252,7 @@ client.on("message", async (msg) => {
 📊 ${v.stok_sekarang}`;
       }).join("\n\n");
 
-      return msg.reply(`📆 BULANAN
+      return msg.reply(`📆 *BULANAN*
 
 💰 Rp${formatRupiah(omzet)}
 📦 ${total}
@@ -245,19 +260,36 @@ client.on("message", async (msg) => {
 ${detail}`);
     }
 
-    // STOK
+    // ================= STOK =================
     if (text === "4") {
       const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
-      return msg.reply("📦 STOK\n\n" + data.map(v => `${v.product} ${v.stok_sekarang}`).join("\n"));
+
+      return msg.reply(
+`📦 *STOK*
+
+` + data.map((v,i)=>
+`${i+1}️⃣ ${v.product}
+📊 ${v.stok_sekarang}`
+).join("\n\n")
+      );
     }
 
-    // PREDIKSI
+    // ================= PREDIKSI =================
     if (text === "5") {
       const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
-      return msg.reply("📉 PREDIKSI\n\n" + data.map(v => v.product).join("\n"));
+
+      return msg.reply(
+`📉 *PREDIKSI*
+
+` + data.map((v,i)=>{
+  const avg = v.total_terjual / 7 || 1;
+  return `${i+1}️⃣ ${v.product}
+⏳ ${Math.floor(v.stok_sekarang / avg)} hari`;
+}).join("\n\n")
+      );
     }
 
-    // RENTANG
+    // ================= RENTANG =================
     if (text === "6") {
       return msg.reply("📅 Format: YYYY-MM-DD YYYY-MM-DD");
     }
@@ -265,7 +297,12 @@ ${detail}`);
     const m = text.match(/(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/);
     if (m) {
       const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${m[1]}&end=${m[2]}`);
-      return msg.reply("📊 LAPORAN\n\n" + data.map(v => `${v.product} ${v.total_terjual}`).join("\n"));
+
+      return msg.reply(
+`📊 *LAPORAN*
+
+` + data.map(v => `${v.product} ${v.total_terjual}`).join("\n")
+      );
     }
 
   } catch (err) {
