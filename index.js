@@ -1,11 +1,10 @@
 require("dotenv").config();
 
-const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
+const { Client, LocalAuth } = require("whatsapp-web.js");
 const QRCode = require("qrcode");
 const axios = require("axios");
 const express = require("express");
 const cron = require("node-cron");
-
 
 const API_URL = "https://jamuanggerwaras.com/lord/api";
 const app = express();
@@ -14,7 +13,7 @@ let qrImage = "";
 let isReady = false;
 
 // =======================
-// USER
+// WHITELIST
 // =======================
 const USERS = [
   {
@@ -23,11 +22,11 @@ const USERS = [
   },
   {
     name: "Ibu Sari",
-    numbers: ["6282142570378", "205419830055064@lid", "205419830055064"],
+    numbers: ["6282142570378", "205419830055064", "205419830055064@lid"],
   },
   {
     name: "Bapak Adi",
-    numbers: ["10600096755791", "10600096755791@lid", "10600096755791"],
+    numbers: ["10600096755791", "10600096755791@lid"],
   },
 ];
 
@@ -36,8 +35,14 @@ const userState = {};
 // =======================
 // HELPER
 // =======================
-const formatRupiah = (v) => Number(v || 0).toLocaleString("id-ID");
-const getDate = (d) => new Date(d).toISOString().split("T")[0];
+const normalizeNumber = (num) =>
+  num.replace("@c.us", "").replace("@lid", "");
+
+const formatRupiah = (v) =>
+  Number(v || 0).toLocaleString("id-ID");
+
+const getDate = (d) =>
+  new Date(d).toISOString().split("T")[0];
 
 const getStatus = (stock) => {
   if (stock <= 10) return "❌ Kritis";
@@ -46,19 +51,14 @@ const getStatus = (stock) => {
   return "✅ Aman";
 };
 
-const sendToAll = async (msg) => {
+const sendToAll = async (text) => {
   for (const u of USERS) {
     for (const n of u.numbers) {
       const id = n.includes("@") ? n : n + "@c.us";
-      await client.sendMessage(id, msg).catch(() => {});
+      await client.sendMessage(id, text).catch(() => {});
     }
   }
 };
-
-// =======================
-// CHART
-// =======================
-
 
 // =======================
 // WHATSAPP
@@ -81,7 +81,7 @@ client.on("ready", () => {
 });
 
 // =======================
-// WEB
+// WEB (QR only)
 // =======================
 app.get("/", (req, res) => {
   if (isReady) return res.send("✅ Connected");
@@ -89,38 +89,78 @@ app.get("/", (req, res) => {
   res.send(`<img src="${qrImage}" />`);
 });
 
-app.get("/api/data", async (req, res) => {
-  const today = getDate(new Date());
-  const { data } = await axios.get(
-    `${API_URL}/variant_sales.php?start=${today}&end=${today}`
-  );
-  res.json(data);
-});
-
-app.get("/dashboard", (req, res) => {
-  res.send(`
-  <html>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <body>
-  <h2>Dashboard</h2>
-  <canvas id="c"></canvas>
-  <script>
-  fetch('/api/data').then(r=>r.json()).then(d=>{
-    new Chart(document.getElementById('c'),{
-      type:'bar',
-      data:{
-        labels:d.map(x=>x.product),
-        datasets:[{data:d.map(x=>Number(x.total_terjual))}]
-      }
-    })
-  })
-  </script>
-  </body>
-  </html>
-  `);
-});
-
 app.listen(process.env.PORT || 3000);
+
+// =======================
+// COMMAND HANDLER
+// =======================
+async function handleCommand(text, msg) {
+  const now = new Date();
+  const today = getDate(now);
+  const weekStart = getDate(new Date(Date.now() - 7 * 86400000));
+  const monthStart = getDate(new Date(now.getFullYear(), now.getMonth(), 1));
+
+  // STOK
+  if (text === "stok") {
+    const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
+    return msg.reply(
+      data.map(v => `${v.product} ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`).join("\n")
+    );
+  }
+
+  // HARIAN
+  if (text === "laporan harian") {
+    const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${today}&end=${today}`);
+    return msg.reply(
+      data.map(v => `${v.product}\n${v.total_terjual} pcs\nRp${formatRupiah(v.total_omzet)}`).join("\n\n")
+    );
+  }
+
+  // MINGGUAN
+  if (text === "laporan mingguan") {
+    const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`);
+    return msg.reply(
+      data.map(v => `${v.product}\n${v.total_terjual} pcs\nRp${formatRupiah(v.total_omzet)}`).join("\n\n")
+    );
+  }
+
+  // BULANAN
+  if (text === "laporan bulanan") {
+    const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`);
+
+    let totalQty = 0;
+    let totalOmzet = 0;
+
+    data.forEach(v => {
+      totalQty += Number(v.total_terjual || 0);
+      totalOmzet += Number(v.total_omzet || 0);
+    });
+
+    const detail = data.map((v, i) =>
+      `${i + 1}. ${v.product}
+${v.total_terjual} pcs
+Rp${formatRupiah(v.total_omzet)}
+Stok: ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
+    ).join("\n\n");
+
+    return msg.reply(
+      `📆 BULANAN\n💰 Rp${formatRupiah(totalOmzet)}\n📦 ${totalQty} pcs\n\n${detail}`
+    );
+  }
+
+  // PREDIKSI
+  if (text === "prediksi stok") {
+    const start = getDate(new Date(Date.now() - 7 * 86400000));
+    const { data } = await axios.get(`${API_URL}/variant_sales.php?start=${start}&end=${today}`);
+
+    return msg.reply(
+      data.map(v => {
+        const avg = v.total_terjual / 7 || 1;
+        return `${v.product} → pesan ${Math.floor(v.stok_sekarang / avg)} hari`;
+      }).join("\n")
+    );
+  }
+}
 
 // =======================
 // BOT
@@ -130,55 +170,55 @@ client.on("message", async (msg) => {
     let sender = msg.from;
     if (msg.from.includes("@g.us")) sender = msg.author;
 
-    sender = sender.replace("@c.us", "").replace("@lid", "");
+    sender = normalizeNumber(sender);
 
-    if (!USERS.some((u) => u.numbers.includes(sender))) return;
+    console.log("DETECTED:", sender);
+
+    const isAllowed = USERS.some(u =>
+      u.numbers.some(n => normalizeNumber(n) === sender)
+    );
+
+    if (!isAllowed) return;
 
     const text = msg.body.toLowerCase().trim();
 
-    const now = new Date();
-    const today = getDate(now);
-    const weekStart = getDate(new Date(Date.now() - 7 * 86400000));
-    const monthStart = getDate(new Date(now.getFullYear(), now.getMonth(), 1));
-
-    // =======================
     // MENU
-    // =======================
     if (text === "menu") {
       userState[sender] = "menu";
       return msg.reply(`📊 MENU
 
-1. Harian
-2. Mingguan
-3. Bulanan
-4. Stok
-5. Prediksi
-6. Rentang
-7. Grafik`);
+1. Laporan Harian
+2. Laporan Mingguan
+3. Laporan Bulanan
+4. Cek Stok
+5. Prediksi Restock
+6. Laporan Rentang Tanggal`);
     }
 
-    // =======================
-    // PILIHAN MENU
-    // =======================
+    // HANDLE MENU
     if (userState[sender] === "menu") {
       delete userState[sender];
 
-      if (text === "1") msg.body = "laporan harian";
-      else if (text === "2") msg.body = "laporan mingguan";
-      else if (text === "3") msg.body = "laporan bulanan";
-      else if (text === "4") msg.body = "stok";
-      else if (text === "5") msg.body = "prediksi stok";
-      else if (text === "6") {
-        userState[sender] = "range";
-        return msg.reply("Format: YYYY-MM-DD YYYY-MM-DD");
-      } else if (text === "7") msg.body = "grafik";
-      else return msg.reply("❌ Salah");
-
+      switch (text) {
+        case "1":
+          return handleCommand("laporan harian", msg);
+        case "2":
+          return handleCommand("laporan mingguan", msg);
+        case "3":
+          return handleCommand("laporan bulanan", msg);
+        case "4":
+          return handleCommand("stok", msg);
+        case "5":
+          return handleCommand("prediksi stok", msg);
+        case "6":
+          userState[sender] = "range";
+          return msg.reply("Format: YYYY-MM-DD YYYY-MM-DD");
+        default:
+          return msg.reply("❌ Pilihan tidak valid");
+      }
     }
 
-    // =======================
     // RANGE
-    // =======================
     if (userState[sender] === "range") {
       const m = text.match(/(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/);
       if (!m) return msg.reply("Format salah");
@@ -190,115 +230,12 @@ client.on("message", async (msg) => {
       );
 
       return msg.reply(
-        data
-          .map((v) => `${v.product} ${v.total_terjual} Rp${formatRupiah(v.total_omzet)}`)
-          .join("\n")
+        data.map(v => `${v.product} ${v.total_terjual} Rp${formatRupiah(v.total_omzet)}`).join("\n")
       );
     }
 
-    // =======================
-    // STOK
-    // =======================
-    if (text === "stok") {
-      const { data } = await axios.get(
-        `${API_URL}/variant_sales.php?start=${today}&end=${today}`
-      );
-
-      return msg.reply(
-        data.map(v => `${v.product} ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`).join("\n")
-      );
-    }
-
-    // =======================
-    // HARIAN
-    // =======================
-    if (text === "laporan harian") {
-      const { data } = await axios.get(
-        `${API_URL}/variant_sales.php?start=${today}&end=${today}`
-      );
-
-      return msg.reply(
-        data.map(v => `${v.product}\n${v.total_terjual} pcs\nRp${formatRupiah(v.total_omzet)}`).join("\n\n")
-      );
-    }
-
-    // =======================
-    // MINGGUAN
-    // =======================
-    if (text === "laporan mingguan") {
-      const { data } = await axios.get(
-        `${API_URL}/variant_sales.php?start=${weekStart}&end=${today}`
-      );
-
-      return msg.reply(
-        data.map(v => `${v.product}\n${v.total_terjual} pcs\nRp${formatRupiah(v.total_omzet)}`).join("\n\n")
-      );
-    }
-
-    // =======================
-    // BULANAN + TOTAL
-    // =======================
-    if (text === "laporan bulanan") {
-      const { data } = await axios.get(
-        `${API_URL}/variant_sales.php?start=${monthStart}&end=${today}`
-      );
-
-      let totalQty = 0;
-      let totalOmzet = 0;
-
-      data.forEach(v => {
-        totalQty += Number(v.total_terjual || 0);
-        totalOmzet += Number(v.total_omzet || 0);
-      });
-
-      const detail = data.map((v,i)=>
-        `${i+1}. ${v.product}
-${v.total_terjual} pcs
-Rp${formatRupiah(v.total_omzet)}
-Stok: ${v.stok_sekarang} (${getStatus(v.stok_sekarang)})`
-      ).join("\n\n");
-
-      return msg.reply(
-        `📆 BULANAN\n💰 Rp${formatRupiah(totalOmzet)}\n📦 ${totalQty} pcs\n\n${detail}`
-      );
-    }
-
-    // =======================
-    // PREDIKSI
-    // =======================
-    if (text === "prediksi stok") {
-      const start = getDate(new Date(Date.now()-7*86400000));
-
-      const { data } = await axios.get(
-        `${API_URL}/variant_sales.php?start=${start}&end=${today}`
-      );
-
-      return msg.reply(
-        data.map(v=>{
-          const avg = v.total_terjual/7 || 1;
-          return `${v.product} → pesan ${Math.floor(v.stok_sekarang/avg)} hari`;
-        }).join("\n")
-      );
-    }
-
-    // =======================
-    // GRAFIK
-    // =======================
-    if (text === "grafik") {
-      const { data } = await axios.get(
-        `${API_URL}/variant_sales.php?start=${today}&end=${today}`
-      );
-
-      const buffer = await generateChart(data.slice(0,10));
-
-      const media = new MessageMedia(
-        "image/png",
-        buffer.toString("base64"),
-        "chart.png"
-      );
-
-      return msg.reply(media);
-    }
+    // FALLBACK
+    await handleCommand(text, msg);
 
   } catch (err) {
     console.error(err);
@@ -318,7 +255,7 @@ cron.schedule("0 18 * * *", async () => {
 
   await sendToAll(
     "📊 AUTO REPORT\n" +
-    data.slice(0,5).map(v=>`${v.product} ${v.total_terjual}`).join("\n")
+    data.slice(0, 5).map(v => `${v.product} ${v.total_terjual}`).join("\n")
   );
 }, { timezone: "Asia/Jakarta" });
 
@@ -338,7 +275,7 @@ cron.schedule("0 11 * * 3", async () => {
 
   await sendToAll(
     "🚨 STOK MENIPIS\n" +
-    kritis.map(v=>`${v.product} (${v.stok_sekarang})`).join("\n")
+    kritis.map(v => `${v.product} (${v.stok_sekarang})`).join("\n")
   );
 }, { timezone: "Asia/Jakarta" });
 
